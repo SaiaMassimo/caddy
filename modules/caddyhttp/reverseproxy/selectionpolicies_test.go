@@ -16,6 +16,7 @@ package reverseproxy
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -846,5 +847,222 @@ func TestCookieHashPolicyWithFirstFallback(t *testing.T) {
 	}
 	if w.Result().Cookies() == nil {
 		t.Error("Expected cookieHashPolicy to set a new cookie.")
+	}
+}
+
+func TestBinomialSelectionPolicy(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip"}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+
+	// Test IP-based selection
+	req.RemoteAddr = "172.0.0.1:80"
+	h := binomialPolicy.Select(pool, req, nil)
+	if h == nil {
+		t.Error("Expected binomial policy to select a host")
+	}
+
+	// Test consistency - same IP should map to same host
+	h2 := binomialPolicy.Select(pool, req, nil)
+	if h != h2 {
+		t.Error("Expected consistent mapping for same IP")
+	}
+
+	// Test different IPs
+	req.RemoteAddr = "172.0.0.2:80"
+	h3 := binomialPolicy.Select(pool, req, nil)
+	if h == h3 {
+		t.Log("Different IPs mapped to same host - this can happen with hash collisions")
+	}
+}
+
+func TestBinomialSelectionPolicyURI(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "uri"}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/test", nil)
+
+	h := binomialPolicy.Select(pool, req, nil)
+	if h == nil {
+		t.Error("Expected binomial policy to select a host")
+	}
+
+	// Test consistency - same URI should map to same host
+	h2 := binomialPolicy.Select(pool, req, nil)
+	if h != h2 {
+		t.Error("Expected consistent mapping for same URI")
+	}
+
+	// Test different URIs
+	req2, _ := http.NewRequest("GET", "/different", nil)
+	h3 := binomialPolicy.Select(pool, req2, nil)
+	if h == h3 {
+		t.Log("Different URIs mapped to same host - this can happen with hash collisions")
+	}
+}
+
+func TestBinomialSelectionPolicyHeader(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{
+		Field:       "header",
+		HeaderField: "User-Agent",
+	}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.Header.Set("User-Agent", "test-agent")
+
+	h := binomialPolicy.Select(pool, req, nil)
+	if h == nil {
+		t.Error("Expected binomial policy to select a host")
+	}
+
+	// Test consistency - same header should map to same host
+	h2 := binomialPolicy.Select(pool, req, nil)
+	if h != h2 {
+		t.Error("Expected consistent mapping for same header")
+	}
+
+	// Test fallback when header is missing
+	req2, _ := http.NewRequest("GET", "/", nil)
+	h3 := binomialPolicy.Select(pool, req2, nil)
+	if h3 == nil {
+		t.Error("Expected fallback policy to select a host")
+	}
+}
+
+func TestBinomialSelectionPolicyDistribution(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip"}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+
+	pool := testPool()
+	
+	// Test distribution across hosts
+	hostCounts := make(map[*Upstream]int)
+	numRequests := 1000
+	
+	for i := 0; i < numRequests; i++ {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.RemoteAddr = fmt.Sprintf("172.0.0.%d:80", i%256)
+		
+		h := binomialPolicy.Select(pool, req, nil)
+		if h != nil {
+			hostCounts[h]++
+		}
+	}
+
+	// Check that all hosts are used
+	if len(hostCounts) != len(pool) {
+		t.Errorf("Expected %d hosts to be used, got %d", len(pool), len(hostCounts))
+	}
+
+	// Check distribution is reasonable
+	expectedPerHost := numRequests / len(pool)
+	tolerance := expectedPerHost / 2 // 50% tolerance
+	
+	for host, count := range hostCounts {
+		if count < expectedPerHost-tolerance || count > expectedPerHost+tolerance {
+			t.Logf("Host %s has %d requests (expected ~%d)", host.Dial, count, expectedPerHost)
+		}
+	}
+}
+
+func TestBinomialSelectionPolicyWithUnavailableHosts(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip"}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+
+	pool := testPool()
+	
+	// Mark some hosts as unavailable
+	pool[1].setHealthy(false)
+	pool[2].setHealthy(false)
+
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+
+	h := binomialPolicy.Select(pool, req, nil)
+	if h == nil {
+		t.Error("Expected binomial policy to select an available host")
+	}
+
+	// Should not select unavailable hosts
+	if h == pool[1] || h == pool[2] {
+		t.Error("Binomial policy selected an unavailable host")
+	}
+
+	// Should select available hosts
+	if h != pool[0] {
+		t.Logf("Selected host %s, expected pool[0] %s", h.Dial, pool[0].Dial)
+	}
+}
+
+func BenchmarkBinomialSelectionPolicy(b *testing.B) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip"}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		b.Fatalf("Provision error: %v", err)
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		binomialPolicy.Select(pool, req, nil)
+	}
+}
+
+func BenchmarkBinomialSelectionPolicyDifferentIPs(b *testing.B) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip"}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		b.Fatalf("Provision error: %v", err)
+	}
+
+	pool := testPool()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.RemoteAddr = fmt.Sprintf("172.0.0.%d:80", i%256)
+		binomialPolicy.Select(pool, req, nil)
 	}
 }

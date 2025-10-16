@@ -34,6 +34,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/binomial"
 )
 
 func init() {
@@ -49,6 +50,7 @@ func init() {
 	caddy.RegisterModule(QueryHashSelection{})
 	caddy.RegisterModule(HeaderHashSelection{})
 	caddy.RegisterModule(CookieHashSelection{})
+	caddy.RegisterModule(BinomialSelection{})
 }
 
 // RandomSelection is a policy that selects
@@ -873,6 +875,152 @@ func loadFallbackPolicy(d *caddyfile.Dispenser) (json.RawMessage, error) {
 	return caddyconfig.JSONModuleObject(sel, "policy", name, nil), nil
 }
 
+// BinomialSelection is a policy that selects a host
+// using the BinomialHash algorithm for optimal load distribution
+// and minimal redistribution when the topology changes.
+type BinomialSelection struct {
+	// The field to use for hashing. Can be "ip", "uri", "header", etc.
+	// Defaults to "ip" if not specified.
+	Field string `json:"field,omitempty"`
+
+	// The header field name if Field is "header"
+	HeaderField string `json:"header_field,omitempty"`
+
+	// The fallback policy to use if the field is not present. Defaults to `random`.
+	FallbackRaw json.RawMessage `json:"fallback,omitempty" caddy:"namespace=http.reverse_proxy.selection_policies inline_key=policy"`
+	fallback    Selector
+}
+
+// CaddyModule returns the Caddy module information.
+func (BinomialSelection) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "http.reverse_proxy.selection_policies.binomial",
+		New: func() caddy.Module { return new(BinomialSelection) },
+	}
+}
+
+// Provision sets up the module.
+func (s *BinomialSelection) Provision(ctx caddy.Context) error {
+	if s.Field == "" {
+		s.Field = "ip" // Default to IP-based hashing
+	}
+
+	if s.FallbackRaw == nil {
+		s.FallbackRaw = caddyconfig.JSONModuleObject(RandomSelection{}, "policy", "random", nil)
+	}
+	mod, err := ctx.LoadModule(s, "FallbackRaw")
+	if err != nil {
+		return fmt.Errorf("loading fallback selection policy: %s", err)
+	}
+	s.fallback = mod.(Selector)
+	return nil
+}
+
+// Select returns an available host, if any.
+func (s BinomialSelection) Select(pool UpstreamPool, req *http.Request, w http.ResponseWriter) *Upstream {
+	if len(pool) == 0 {
+		return nil
+	}
+
+	// Get the key to hash based on the field type
+	var key string
+	switch s.Field {
+	case "ip":
+		clientIP, _, err := net.SplitHostPort(req.RemoteAddr)
+		if err != nil {
+			clientIP = req.RemoteAddr
+		}
+		key = clientIP
+	case "client_ip":
+		address := caddyhttp.GetVar(req.Context(), caddyhttp.ClientIPVarKey).(string)
+		clientIP, _, err := net.SplitHostPort(address)
+		if err != nil {
+			clientIP = address
+		}
+		key = clientIP
+	case "uri":
+		key = req.RequestURI
+	case "header":
+		if s.HeaderField == "" {
+			return s.fallback.Select(pool, req, w)
+		}
+		if s.HeaderField == "Host" && req.Host != "" {
+			key = req.Host
+		} else {
+			key = req.Header.Get(s.HeaderField)
+		}
+		if key == "" {
+			return s.fallback.Select(pool, req, w)
+		}
+	default:
+		return s.fallback.Select(pool, req, w)
+	}
+
+	// Create binomial engine with the number of available upstreams
+	availableUpstreams := make([]*Upstream, 0, len(pool))
+	for _, up := range pool {
+		if up.Available() {
+			availableUpstreams = append(availableUpstreams, up)
+		}
+	}
+
+	if len(availableUpstreams) == 0 {
+		return nil
+	}
+
+	// Use binomial hashing to select the upstream
+	engine := binomial.NewBinomialEngine(len(availableUpstreams))
+	bucket := engine.GetBucket(key)
+
+	// Return the upstream at the selected bucket index
+	if bucket >= 0 && bucket < len(availableUpstreams) {
+		return availableUpstreams[bucket]
+	}
+
+	// Fallback to random selection if something goes wrong
+	return s.fallback.Select(pool, req, w)
+}
+
+// UnmarshalCaddyfile sets up the module from Caddyfile tokens.
+func (s *BinomialSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume policy name
+
+	// Parse field type
+	if d.NextArg() {
+		s.Field = d.Val()
+	}
+
+	for d.NextBlock(0) {
+		switch d.Val() {
+		case "field":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			s.Field = d.Val()
+		case "header_field":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			s.HeaderField = d.Val()
+		case "fallback":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			if s.FallbackRaw != nil {
+				return d.Err("fallback selection policy already specified")
+			}
+			mod, err := loadFallbackPolicy(d)
+			if err != nil {
+				return err
+			}
+			s.FallbackRaw = mod
+		default:
+			return d.Errf("unrecognized option '%s'", d.Val())
+		}
+	}
+	return nil
+}
+
 // Interface guards
 var (
 	_ Selector = (*RandomSelection)(nil)
@@ -887,6 +1035,7 @@ var (
 	_ Selector = (*QueryHashSelection)(nil)
 	_ Selector = (*HeaderHashSelection)(nil)
 	_ Selector = (*CookieHashSelection)(nil)
+	_ Selector = (*BinomialSelection)(nil)
 
 	_ caddy.Validator = (*RandomChoiceSelection)(nil)
 
