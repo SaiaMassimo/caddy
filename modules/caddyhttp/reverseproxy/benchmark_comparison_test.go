@@ -38,6 +38,11 @@ func BenchmarkRendezvousVsBinomial_SameKey(b *testing.B) {
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
+	
+	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
+		b.Fatalf("Provision error: %v", err)
+	}
 
 	pool := testPool()
 	req, _ := http.NewRequest("GET", "/", nil)
@@ -56,6 +61,13 @@ func BenchmarkRendezvousVsBinomial_SameKey(b *testing.B) {
 			binomialPolicy.Select(pool, req, nil)
 		}
 	})
+	
+	b.Run("BinomialConsistent_SameKey", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			binomialConsistentPolicy.Select(pool, req, nil)
+		}
+	})
 }
 
 func BenchmarkRendezvousVsBinomial_DifferentKeys(b *testing.B) {
@@ -67,6 +79,11 @@ func BenchmarkRendezvousVsBinomial_DifferentKeys(b *testing.B) {
 	ipHashPolicy := IPHashSelection{}
 	binomialPolicy := BinomialSelection{Field: "ip"}
 	if err := binomialPolicy.Provision(ctx); err != nil {
+		b.Fatalf("Provision error: %v", err)
+	}
+	
+	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -87,6 +104,60 @@ func BenchmarkRendezvousVsBinomial_DifferentKeys(b *testing.B) {
 			req, _ := http.NewRequest("GET", "/", nil)
 			req.RemoteAddr = fmt.Sprintf("172.0.0.%d:80", i%256)
 			binomialPolicy.Select(pool, req, nil)
+		}
+	})
+	
+	b.Run("BinomialConsistent_DifferentKeys", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			req, _ := http.NewRequest("GET", "/", nil)
+			req.RemoteAddr = fmt.Sprintf("172.0.0.%d:80", i%256)
+			binomialConsistentPolicy.Select(pool, req, nil)
+		}
+	})
+}
+
+func BenchmarkRendezvousVsBinomial_EventDrivenPerformance(b *testing.B) {
+	// Test scenario: Performance comparison with event-driven topology updates
+	
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	ipHashPolicy := IPHashSelection{}
+	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
+		b.Fatalf("Provision error: %v", err)
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+
+	b.Run("Rendezvous_IPHash_EventDriven", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			ipHashPolicy.Select(pool, req, nil)
+		}
+	})
+
+	b.Run("BinomialConsistent_EventDriven", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			binomialConsistentPolicy.Select(pool, req, nil)
+		}
+	})
+	
+	// Test with simulated topology changes
+	b.Run("BinomialConsistent_WithTopologyChanges", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			// Simulate topology changes every 1000 requests
+			if i%1000 == 0 {
+				pool[1].setHealthy(false)
+			} else if i%1000 == 500 {
+				pool[1].setHealthy(true)
+			}
+			binomialConsistentPolicy.Select(pool, req, nil)
 		}
 	})
 }
@@ -148,6 +219,11 @@ func BenchmarkRendezvousVsBinomial_DifferentPoolSizes(b *testing.B) {
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
+	
+	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
+		b.Fatalf("Provision error: %v", err)
+	}
 
 	poolSizes := []int{3, 5, 10, 20, 50, 100}
 	
@@ -167,6 +243,15 @@ func BenchmarkRendezvousVsBinomial_DifferentPoolSizes(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				binomialPolicy.Select(pool, req, nil)
+			}
+		})
+		
+		b.Run(fmt.Sprintf("BinomialConsistent_PoolSize_%d", size), func(b *testing.B) {
+			req, _ := http.NewRequest("GET", "/", nil)
+			req.RemoteAddr = "172.0.0.1:80"
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				binomialConsistentPolicy.Select(pool, req, nil)
 			}
 		})
 	}
@@ -305,6 +390,11 @@ func BenchmarkRendezvousVsBinomial_MemoryAllocation(b *testing.B) {
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
+	
+	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
+		b.Fatalf("Provision error: %v", err)
+	}
 
 	pool := testPool()
 
@@ -325,6 +415,16 @@ func BenchmarkRendezvousVsBinomial_MemoryAllocation(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			binomialPolicy.Select(pool, req, nil)
+		}
+	})
+	
+	b.Run("BinomialConsistent_Memory", func(b *testing.B) {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.RemoteAddr = "172.0.0.1:80"
+		b.ResetTimer()
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			binomialConsistentPolicy.Select(pool, req, nil)
 		}
 	})
 }

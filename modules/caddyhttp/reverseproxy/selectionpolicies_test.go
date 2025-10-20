@@ -1076,6 +1076,9 @@ func TestBinomialSelectionPolicyConsistent(t *testing.T) {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
 	}
+	
+	// Note: Without events app, the policy will work but won't have real-time topology updates
+	// This is expected behavior in test environments
 
 	pool := testPool()
 	req, _ := http.NewRequest("GET", "/", nil)
@@ -1186,35 +1189,6 @@ func TestBinomialSelectionPolicyChangeDetection(t *testing.T) {
 	}
 }
 
-func TestBinomialSelectionPolicyTopologyHash(t *testing.T) {
-	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
-	defer cancel()
-	
-	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
-	if err := binomialPolicy.Provision(ctx); err != nil {
-		t.Errorf("Provision error: %v", err)
-		t.FailNow()
-	}
-	
-	// Test hash calculation with same topology
-	hash1 := binomialPolicy.calculateTopologyHash([]string{"host1", "host2", "host3"})
-	hash2 := binomialPolicy.calculateTopologyHash([]string{"host1", "host2", "host3"})
-	if hash1 != hash2 {
-		t.Error("Expected same hash for identical topology")
-	}
-
-	// Test hash calculation with different topology
-	hash3 := binomialPolicy.calculateTopologyHash([]string{"host1", "host2"})
-	if hash1 == hash3 {
-		t.Error("Expected different hash for different topology")
-	}
-
-	// Test hash calculation with different order (should be different)
-	hash4 := binomialPolicy.calculateTopologyHash([]string{"host2", "host1", "host3"})
-	if hash1 == hash4 {
-		t.Error("Expected different hash for different order")
-	}
-}
 
 func TestBinomialSelectionPolicyMultipleTopologyChanges(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
@@ -1274,6 +1248,52 @@ func TestBinomialSelectionPolicyMultipleTopologyChanges(t *testing.T) {
 	h6 := binomialPolicy.Select(pool, req, nil)
 	if h5 != h6 {
 		t.Error("Expected consistent mapping after all changes")
+	}
+}
+
+func TestBinomialSelectionPolicyEventDriven(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+	
+	// Test that the policy can handle events directly
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+	
+	// Initial selection
+	h1 := binomialPolicy.Select(pool, req, nil)
+	if h1 == nil {
+		t.Error("Expected binomial policy to select a host")
+	}
+	
+	// Test that Handle method works for healthy events
+	healthyEvent := caddy.Event{
+		Data: map[string]any{"host": "localhost:8080"},
+	}
+	err := binomialPolicy.Handle(context.Background(), healthyEvent)
+	if err != nil {
+		t.Errorf("Handle healthy event error: %v", err)
+	}
+	
+	// Test that Handle method works for unhealthy events
+	unhealthyEvent := caddy.Event{
+		Data: map[string]any{"host": "localhost:8081"},
+	}
+	err = binomialPolicy.Handle(context.Background(), unhealthyEvent)
+	if err != nil {
+		t.Errorf("Handle unhealthy event error: %v", err)
+	}
+	
+	// Test consistency after events
+	h2 := binomialPolicy.Select(pool, req, nil)
+	if h2 == nil {
+		t.Error("Expected binomial policy to select a host after events")
 	}
 }
 

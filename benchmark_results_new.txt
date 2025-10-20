@@ -1,0 +1,52 @@
+{"level":"warn","ts":1760953620.5339222,"msg":"The 'tls_trusted_ca_certs' field is deprecated. Use the 'tls_trust_pool' field instead."}
+{"level":"warn","ts":1760953620.5340338,"msg":"The 'tls_trusted_ca_certs' field is deprecated. Use the 'tls_trust_pool' field instead."}
+goos: linux
+goarch: amd64
+pkg: github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy
+cpu: Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz
+BenchmarkRendezvousVsBinomial_SameKey/Rendezvous_IPHash_SameKey-6         	 5845286	       200.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_SameKey/Binomial_SameKey-6                  	16401690	        66.72 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_SameKey/BinomialConsistent_SameKey-6        	12165754	        92.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentKeys/Rendezvous_IPHash_DifferentKeys-6         	  596688	      1726 ns/op	     528 B/op	       4 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentKeys/Binomial_DifferentKeys-6                  	  916579	      1391 ns/op	     528 B/op	       4 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentKeys/BinomialConsistent_DifferentKeys-6        	 1000000	      1533 ns/op	     528 B/op	       4 allocs/op
+BenchmarkRendezvousVsBinomial_EventDrivenPerformance/Rendezvous_IPHash_EventDriven-6  	 5785743	       197.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_EventDrivenPerformance/BinomialConsistent_EventDriven-6 	12032302	        92.55 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_EventDrivenPerformance/BinomialConsistent_WithTopologyChanges-6         	12170185	        93.83 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_URIHash/Rendezvous_URIHash_SameURI-6                                    	 7671098	       143.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_URIHash/Binomial_URI_SameURI-6                                          	28217721	        42.58 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_URIHash/Rendezvous_URIHash_DifferentURIs-6                              	  677486	      1833 ns/op	     534 B/op	       4 allocs/op
+BenchmarkRendezvousVsBinomial_URIHash/Binomial_URI_DifferentURIs-6                                    	  646125	      1642 ns/op	     534 B/op	       4 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/Binomial_PoolSize_3-6                                	17743630	        65.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/BinomialConsistent_PoolSize_3-6                      	12242314	        92.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/Binomial_PoolSize_5-6                                	 5251220	       257.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/BinomialConsistent_PoolSize_5-6                      	 4414282	       283.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/Binomial_PoolSize_10-6                               	 3374766	       371.6 ns/op	      80 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/BinomialConsistent_PoolSize_10-6                     	 2855078	       404.3 ns/op	      80 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/Binomial_PoolSize_20-6                               	 2150983	       607.9 ns/op	     160 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/BinomialConsistent_PoolSize_20-6                     	 1981086	       591.5 ns/op	     160 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/Binomial_PoolSize_50-6                               	 1000000	      1278 ns/op	     416 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/BinomialConsistent_PoolSize_50-6                     	 1000000	      1231 ns/op	     416 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/Binomial_PoolSize_100-6                              	  467527	      2246 ns/op	     896 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_DifferentPoolSizes/BinomialConsistent_PoolSize_100-6                    	  516385	      2209 ns/op	     896 B/op	       1 allocs/op
+BenchmarkRendezvousVsBinomial_RendezvousPoolSizes/Rendezvous_PoolSize_3-6                             	 5384497	       226.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_RendezvousPoolSizes/Rendezvous_PoolSize_5-6                             	 3388861	       359.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_RendezvousPoolSizes/Rendezvous_PoolSize_10-6                            	 1745389	       702.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_RendezvousPoolSizes/Rendezvous_PoolSize_20-6                            	  815276	      1389 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_RendezvousPoolSizes/Rendezvous_PoolSize_50-6                            	  296911	      3409 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_RendezvousPoolSizes/Rendezvous_PoolSize_100-6                           	  157683	      6652 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_HeaderHash/Rendezvous_HeaderHash_SameHeader-6                           	 4385406	       269.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_HeaderHash/Binomial_Header_SameHeader-6                                 	 9635953	       110.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_HeaderHash/Rendezvous_HeaderHash_DifferentHeaders-6                     	  565286	      2203 ns/op	     896 B/op	       6 allocs/op
+BenchmarkRendezvousVsBinomial_HeaderHash/Binomial_Header_DifferentHeaders-6                           	  612198	      2190 ns/op	     896 B/op	       6 allocs/op
+BenchmarkRendezvousVsBinomial_WithUnavailableHosts/Rendezvous_IPHash_WithUnavailableHosts-6           	13087596	        86.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_WithUnavailableHosts/Binomial_WithUnavailableHosts-6                    	21972397	        51.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_MemoryAllocation/Rendezvous_IPHash_Memory-6                             	 5887046	       199.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_MemoryAllocation/Binomial_Memory-6                                      	18530424	        64.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_MemoryAllocation/BinomialConsistent_Memory-6                            	11661504	        96.33 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_ConcurrentAccess/Rendezvous_IPHash_Concurrent-6                         	33930549	        35.71 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_ConcurrentAccess/Binomial_Concurrent-6                                  	102704812	        11.76 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsBinomial_ConsistencyCheck/Rendezvous_IPHash_Consistency-6                        	     750	   1660844 ns/op	  528286 B/op	    4001 allocs/op
+BenchmarkRendezvousVsBinomial_ConsistencyCheck/Binomial_Consistency-6                                 	     877	   1357715 ns/op	  528269 B/op	    4001 allocs/op
+PASS
+ok  	github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy	61.890s

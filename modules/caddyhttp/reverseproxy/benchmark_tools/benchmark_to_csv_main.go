@@ -39,6 +39,7 @@ func main() {
 	benchmarks := []string{
 		"BenchmarkRendezvousVsBinomial_SameKey",
 		"BenchmarkRendezvousVsBinomial_DifferentKeys", 
+		"BenchmarkRendezvousVsBinomial_EventDrivenPerformance",
 		"BenchmarkRendezvousVsBinomial_URIHash",
 		"BenchmarkRendezvousVsBinomial_HeaderHash",
 		"BenchmarkRendezvousVsBinomial_DifferentPoolSizes",
@@ -131,6 +132,8 @@ func parseTestName(testName, pattern string) (algorithm, scenario string) {
 	// Parse algorithm type based on test name
 	if strings.Contains(testName, "Rendezvous") {
 		algorithm = "Rendezvous"
+	} else if strings.Contains(testName, "BinomialConsistent") {
+		algorithm = "BinomialConsistent"
 	} else if strings.Contains(testName, "Binomial") {
 		algorithm = "BinomialHash"
 	} else {
@@ -143,6 +146,12 @@ func parseTestName(testName, pattern string) (algorithm, scenario string) {
 		scenario = "Same Key"
 	case "BenchmarkRendezvousVsBinomial_DifferentKeys":
 		scenario = "Different Keys"
+	case "BenchmarkRendezvousVsBinomial_EventDrivenPerformance":
+		if strings.Contains(testName, "WithTopologyChanges") {
+			scenario = "Event-Driven with Topology Changes"
+		} else {
+			scenario = "Event-Driven Performance"
+		}
 	case "BenchmarkRendezvousVsBinomial_URIHash":
 		if strings.Contains(testName, "SameURI") {
 			scenario = "Same URI"

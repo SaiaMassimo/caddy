@@ -15,6 +15,7 @@
 package reverseproxy
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -25,6 +26,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -33,6 +35,7 @@ import (
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"github.com/caddyserver/caddy/v2/modules/caddyevents"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/binomial"
 )
@@ -896,7 +899,11 @@ type BinomialSelection struct {
 	// Internal state for consistent hashing
 	consistentEngine *binomial.ConsistentEngine
 	topology         map[string]bool // Track which nodes are currently available
-	lastTopologyHash uint64          // Hash of last known topology for change detection
+	mu               sync.RWMutex    // Protect topology updates
+	
+	// Event system integration
+	events *caddyevents.App
+	ctx    caddy.Context
 }
 
 // CaddyModule returns the Caddy module information.
@@ -930,6 +937,12 @@ func (s *BinomialSelection) Provision(ctx caddy.Context) error {
 		// Initialize consistent engine with binomial engine
 		binomialEngine := binomial.NewBinomialEngine(0) // Start with 0, will be populated by events
 		s.consistentEngine = binomial.NewConsistentEngine(binomialEngine)
+		
+		// Set up event system integration
+		s.ctx = ctx
+		
+		// Note: Event subscription will be handled by the reverse proxy handler
+		// when it provisions this selection policy, not during our Provision phase
 	}
 	
 	return nil
@@ -986,16 +999,12 @@ func (s BinomialSelection) Select(pool UpstreamPool, req *http.Request, w http.R
 	if len(availableUpstreams) == 0 {
 		return nil
 	}
-
-	// Update topology if using consistent hashing
-	if s.Consistent {
-		s.UpdateTopology(availableUpstreams)
-	}
 	
 	// Use binomial hashing to select the upstream
 	var bucket int
 	if s.Consistent && s.consistentEngine != nil {
 		// Use consistent engine with Memento for stable hashing
+		// Topology is already updated via events, no need for change detection
 		bucket = s.consistentEngine.GetBucket(key)
 	} else {
 		// Use standard binomial engine
@@ -1054,61 +1063,83 @@ func (s *BinomialSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	return nil
 }
 
-// UpdateTopology updates the topology based on available upstreams
-// This method uses change detection to avoid unnecessary updates
-func (s *BinomialSelection) UpdateTopology(availableUpstreams []*Upstream) {
-	if !s.Consistent || s.consistentEngine == nil {
+// SetEventsApp sets the events app for this selection policy
+// This should be called by the reverse proxy handler when it provisions the selection policy
+func (s *BinomialSelection) SetEventsApp(events *caddyevents.App) {
+	if s.Consistent && events != nil {
+		s.events = events
+		s.subscribeToHealthEvents()
+	}
+}
+
+// subscribeToHealthEvents subscribes to health check events for real-time topology updates
+func (s *BinomialSelection) subscribeToHealthEvents() {
+	if s.events == nil {
 		return
 	}
 	
-	// Create a map of currently available upstreams
-	currentAvailable := make(map[string]bool)
-	var topologyKeys []string
-	for _, up := range availableUpstreams {
-		if up.Available() {
-			host := up.String()
-			currentAvailable[host] = true
-			topologyKeys = append(topologyKeys, host)
-		}
-	}
+	// Subscribe to "healthy" events
+	s.events.On("healthy", s)
 	
-	// Calculate hash of current topology for change detection
-	currentHash := s.calculateTopologyHash(topologyKeys)
-	if currentHash == s.lastTopologyHash {
-		return // No changes detected, skip update
-	}
-	
-	// Add new nodes that became available
-	for host := range currentAvailable {
-		if !s.topology[host] {
-			s.consistentEngine.AddNode(host)
-			s.topology[host] = true
-		}
-	}
-	
-	// Remove nodes that are no longer available
-	for host := range s.topology {
-		if !currentAvailable[host] {
-			s.consistentEngine.RemoveNode(host)
-			s.topology[host] = false
-		}
-	}
-	
-	// Update hash
-	s.lastTopologyHash = currentHash
+	// Subscribe to "unhealthy" events  
+	s.events.On("unhealthy", s)
 }
 
-// calculateTopologyHash calculates a hash of the current topology for change detection
-func (s *BinomialSelection) calculateTopologyHash(topologyKeys []string) uint64 {
-	// Simple hash calculation - in production you might want something more sophisticated
-	var hash uint64
-	for _, key := range topologyKeys {
-		hash = hash*31 + uint64(len(key))
-		for _, c := range key {
-			hash = hash*31 + uint64(c)
-		}
+// handleHealthyEvent handles when an upstream becomes healthy
+func (s *BinomialSelection) handleHealthyEvent(ctx context.Context, event caddy.Event) error {
+	if !s.Consistent || s.consistentEngine == nil {
+		return nil
 	}
-	return hash
+	
+	host, ok := event.Data["host"].(string)
+	if !ok {
+		return nil
+	}
+	
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Add node to consistent engine if not already present
+	if !s.topology[host] {
+		s.consistentEngine.AddNode(host)
+		s.topology[host] = true
+	}
+	
+	return nil
+}
+
+// handleUnhealthyEvent handles when an upstream becomes unhealthy
+func (s *BinomialSelection) handleUnhealthyEvent(ctx context.Context, event caddy.Event) error {
+	if !s.Consistent || s.consistentEngine == nil {
+		return nil
+	}
+	
+	host, ok := event.Data["host"].(string)
+	if !ok {
+		return nil
+	}
+	
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Remove node from consistent engine if present
+	if s.topology[host] {
+		s.consistentEngine.RemoveNode(host)
+		s.topology[host] = false
+	}
+	
+	return nil
+}
+
+// Handle implements caddyevents.Handler interface
+func (s *BinomialSelection) Handle(ctx context.Context, event caddy.Event) error {
+	switch event.Name() {
+	case "healthy":
+		return s.handleHealthyEvent(ctx, event)
+	case "unhealthy":
+		return s.handleUnhealthyEvent(ctx, event)
+	}
+	return nil
 }
 
 // Interface guards
@@ -1134,4 +1165,7 @@ var (
 
 	_ caddyfile.Unmarshaler = (*RandomChoiceSelection)(nil)
 	_ caddyfile.Unmarshaler = (*WeightedRoundRobinSelection)(nil)
+	_ caddyfile.Unmarshaler = (*BinomialSelection)(nil)
+	
+	_ caddyevents.Handler = (*BinomialSelection)(nil)
 )

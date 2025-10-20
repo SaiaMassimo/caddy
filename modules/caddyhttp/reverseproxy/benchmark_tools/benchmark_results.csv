@@ -1,31 +1,43 @@
 TestName,Algorithm,TimeNs,MemoryBytes,Allocations,Scenario
-Rendezvous_IPHash_SameKey,Rendezvous,206.70,0,0,Same Key
-Binomial_SameKey,BinomialHash,58.09,0,0,Same Key
-Rendezvous_IPHash_DifferentKeys,Rendezvous,1907.00,528,4,Different Keys
-Binomial_DifferentKeys,BinomialHash,1325.00,528,4,Different Keys
-Rendezvous_URIHash_SameURI,Rendezvous,146.50,0,0,Same URI
-Binomial_URI_SameURI,BinomialHash,36.54,0,0,Same URI
-Rendezvous_URIHash_DifferentURIs,Rendezvous,1836.00,534,4,Different URIs
-Binomial_URI_DifferentURIs,BinomialHash,1603.00,534,4,Different URIs
-Rendezvous_HeaderHash_SameHeader,Rendezvous,257.10,0,0,Same Header
-Binomial_Header_SameHeader,BinomialHash,99.63,0,0,Same Header
-Rendezvous_HeaderHash_DifferentHeaders,Rendezvous,2429.00,896,6,Different Headers
-Binomial_Header_DifferentHeaders,BinomialHash,1754.00,896,6,Different Headers
-Binomial_PoolSize_3,BinomialHash,57.73,0,0,Pool Size Scalability
-Binomial_PoolSize_5,BinomialHash,236.40,48,1,Pool Size Scalability
-Binomial_PoolSize_10,BinomialHash,350.60,80,1,Pool Size Scalability
-Binomial_PoolSize_20,BinomialHash,599.20,160,1,Pool Size Scalability
-Binomial_PoolSize_50,BinomialHash,1193.00,416,1,Pool Size Scalability
-Binomial_PoolSize_100,BinomialHash,2043.00,896,1,Pool Size Scalability
-Rendezvous_PoolSize_3,Rendezvous,220.30,0,0,Pool Size Scalability
-Rendezvous_PoolSize_5,Rendezvous,353.50,0,0,Pool Size Scalability
-Rendezvous_PoolSize_10,Rendezvous,687.30,0,0,Pool Size Scalability
-Rendezvous_PoolSize_20,Rendezvous,1360.00,0,0,Pool Size Scalability
-Rendezvous_PoolSize_50,Rendezvous,3307.00,0,0,Pool Size Scalability
-Rendezvous_PoolSize_100,Rendezvous,6575.00,0,0,Pool Size Scalability
-Rendezvous_IPHash_Memory,Rendezvous,209.90,0,0,Memory Allocation
-Binomial_Memory,BinomialHash,58.99,0,0,Memory Allocation
-Rendezvous_IPHash_Concurrent,Rendezvous,36.72,0,0,Concurrent Access
-Binomial_Concurrent,BinomialHash,10.64,0,0,Concurrent Access
-Rendezvous_IPHash_Consistency,Rendezvous,1762407.00,528279,4001,Consistency Check
-Binomial_Consistency,BinomialHash,1411543.00,528272,4001,Consistency Check
+Rendezvous_IPHash_SameKey,Rendezvous,201.30,0,0,Same Key
+Binomial_SameKey,BinomialHash,65.38,0,0,Same Key
+BinomialConsistent_SameKey,BinomialConsistent,95.13,0,0,Same Key
+Rendezvous_IPHash_DifferentKeys,Rendezvous,1760.00,528,4,Different Keys
+Binomial_DifferentKeys,BinomialHash,1380.00,528,4,Different Keys
+BinomialConsistent_DifferentKeys,BinomialConsistent,1366.00,528,4,Different Keys
+Rendezvous_IPHash_EventDriven,Rendezvous,197.70,0,0,Event-Driven Performance
+BinomialConsistent_EventDriven,BinomialConsistent,90.36,0,0,Event-Driven Performance
+BinomialConsistent_WithTopologyChanges,BinomialConsistent,95.14,0,0,Event-Driven with Topology Changes
+Rendezvous_URIHash_SameURI,Rendezvous,146.20,0,0,Same URI
+Binomial_URI_SameURI,BinomialHash,41.90,0,0,Same URI
+Rendezvous_URIHash_DifferentURIs,Rendezvous,1714.00,534,4,Different URIs
+Binomial_URI_DifferentURIs,BinomialHash,1706.00,534,4,Different URIs
+Rendezvous_HeaderHash_SameHeader,Rendezvous,261.00,0,0,Same Header
+Binomial_Header_SameHeader,BinomialHash,106.80,0,0,Same Header
+Rendezvous_HeaderHash_DifferentHeaders,Rendezvous,2260.00,896,6,Different Headers
+Binomial_Header_DifferentHeaders,BinomialHash,2101.00,896,6,Different Headers
+Binomial_PoolSize_3,BinomialHash,64.19,0,0,Pool Size Scalability
+BinomialConsistent_PoolSize_3,BinomialConsistent,90.78,0,0,Pool Size Scalability
+Binomial_PoolSize_5,BinomialHash,240.30,48,1,Pool Size Scalability
+BinomialConsistent_PoolSize_5,BinomialConsistent,275.80,48,1,Pool Size Scalability
+Binomial_PoolSize_10,BinomialHash,353.40,80,1,Pool Size Scalability
+BinomialConsistent_PoolSize_10,BinomialConsistent,383.60,80,1,Pool Size Scalability
+Binomial_PoolSize_20,BinomialHash,644.30,160,1,Pool Size Scalability
+BinomialConsistent_PoolSize_20,BinomialConsistent,591.70,160,1,Pool Size Scalability
+Binomial_PoolSize_50,BinomialHash,1300.00,416,1,Pool Size Scalability
+BinomialConsistent_PoolSize_50,BinomialConsistent,1280.00,416,1,Pool Size Scalability
+Binomial_PoolSize_100,BinomialHash,2201.00,896,1,Pool Size Scalability
+BinomialConsistent_PoolSize_100,BinomialConsistent,2496.00,896,1,Pool Size Scalability
+Rendezvous_PoolSize_3,Rendezvous,224.70,0,0,Pool Size Scalability
+Rendezvous_PoolSize_5,Rendezvous,351.40,0,0,Pool Size Scalability
+Rendezvous_PoolSize_10,Rendezvous,673.90,0,0,Pool Size Scalability
+Rendezvous_PoolSize_20,Rendezvous,1363.00,0,0,Pool Size Scalability
+Rendezvous_PoolSize_50,Rendezvous,3318.00,0,0,Pool Size Scalability
+Rendezvous_PoolSize_100,Rendezvous,6501.00,0,0,Pool Size Scalability
+Rendezvous_IPHash_Memory,Rendezvous,199.10,0,0,Memory Allocation
+Binomial_Memory,BinomialHash,65.20,0,0,Memory Allocation
+BinomialConsistent_Memory,BinomialConsistent,91.19,0,0,Memory Allocation
+Rendezvous_IPHash_Concurrent,Rendezvous,35.77,0,0,Concurrent Access
+Binomial_Concurrent,BinomialHash,11.73,0,0,Concurrent Access
+Rendezvous_IPHash_Consistency,Rendezvous,1701197.00,528279,4001,Consistency Check
+Binomial_Consistency,BinomialHash,1468963.00,528277,4001,Consistency Check
