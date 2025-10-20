@@ -886,9 +886,17 @@ type BinomialSelection struct {
 	// The header field name if Field is "header"
 	HeaderField string `json:"header_field,omitempty"`
 
+	// Enable consistent hashing with Memento for stability against random node removals
+	Consistent bool `json:"consistent,omitempty"`
+
 	// The fallback policy to use if the field is not present. Defaults to `random`.
 	FallbackRaw json.RawMessage `json:"fallback,omitempty" caddy:"namespace=http.reverse_proxy.selection_policies inline_key=policy"`
 	fallback    Selector
+	
+	// Internal state for consistent hashing
+	consistentEngine *binomial.ConsistentEngine
+	topology         map[string]bool // Track which nodes are currently available
+	lastTopologyHash uint64          // Hash of last known topology for change detection
 }
 
 // CaddyModule returns the Caddy module information.
@@ -913,6 +921,17 @@ func (s *BinomialSelection) Provision(ctx caddy.Context) error {
 		return fmt.Errorf("loading fallback selection policy: %s", err)
 	}
 	s.fallback = mod.(Selector)
+	
+	// Set up consistent hashing with Memento if enabled
+	if s.Consistent {
+		// Initialize topology tracking
+		s.topology = make(map[string]bool)
+		
+		// Initialize consistent engine with binomial engine
+		binomialEngine := binomial.NewBinomialEngine(0) // Start with 0, will be populated by events
+		s.consistentEngine = binomial.NewConsistentEngine(binomialEngine)
+	}
+	
 	return nil
 }
 
@@ -968,9 +987,21 @@ func (s BinomialSelection) Select(pool UpstreamPool, req *http.Request, w http.R
 		return nil
 	}
 
+	// Update topology if using consistent hashing
+	if s.Consistent {
+		s.UpdateTopology(availableUpstreams)
+	}
+	
 	// Use binomial hashing to select the upstream
-	engine := binomial.NewBinomialEngine(len(availableUpstreams))
-	bucket := engine.GetBucket(key)
+	var bucket int
+	if s.Consistent && s.consistentEngine != nil {
+		// Use consistent engine with Memento for stable hashing
+		bucket = s.consistentEngine.GetBucket(key)
+	} else {
+		// Use standard binomial engine
+		engine := binomial.NewBinomialEngine(len(availableUpstreams))
+		bucket = engine.GetBucket(key)
+	}
 
 	// Return the upstream at the selected bucket index
 	if bucket >= 0 && bucket < len(availableUpstreams) {
@@ -1002,6 +1033,8 @@ func (s *BinomialSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			s.HeaderField = d.Val()
+		case "consistent":
+			s.Consistent = true
 		case "fallback":
 			if !d.NextArg() {
 				return d.ArgErr()
@@ -1019,6 +1052,63 @@ func (s *BinomialSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 		}
 	}
 	return nil
+}
+
+// UpdateTopology updates the topology based on available upstreams
+// This method uses change detection to avoid unnecessary updates
+func (s *BinomialSelection) UpdateTopology(availableUpstreams []*Upstream) {
+	if !s.Consistent || s.consistentEngine == nil {
+		return
+	}
+	
+	// Create a map of currently available upstreams
+	currentAvailable := make(map[string]bool)
+	var topologyKeys []string
+	for _, up := range availableUpstreams {
+		if up.Available() {
+			host := up.String()
+			currentAvailable[host] = true
+			topologyKeys = append(topologyKeys, host)
+		}
+	}
+	
+	// Calculate hash of current topology for change detection
+	currentHash := s.calculateTopologyHash(topologyKeys)
+	if currentHash == s.lastTopologyHash {
+		return // No changes detected, skip update
+	}
+	
+	// Add new nodes that became available
+	for host := range currentAvailable {
+		if !s.topology[host] {
+			s.consistentEngine.AddNode(host)
+			s.topology[host] = true
+		}
+	}
+	
+	// Remove nodes that are no longer available
+	for host := range s.topology {
+		if !currentAvailable[host] {
+			s.consistentEngine.RemoveNode(host)
+			s.topology[host] = false
+		}
+	}
+	
+	// Update hash
+	s.lastTopologyHash = currentHash
+}
+
+// calculateTopologyHash calculates a hash of the current topology for change detection
+func (s *BinomialSelection) calculateTopologyHash(topologyKeys []string) uint64 {
+	// Simple hash calculation - in production you might want something more sophisticated
+	var hash uint64
+	for _, key := range topologyKeys {
+		hash = hash*31 + uint64(len(key))
+		for _, c := range key {
+			hash = hash*31 + uint64(c)
+		}
+	}
+	return hash
 }
 
 // Interface guards

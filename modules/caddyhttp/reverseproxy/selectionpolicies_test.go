@@ -1066,3 +1066,258 @@ func BenchmarkBinomialSelectionPolicyDifferentIPs(b *testing.B) {
 		binomialPolicy.Select(pool, req, nil)
 	}
 }
+
+func TestBinomialSelectionPolicyConsistent(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+
+	// Test initial selection
+	h1 := binomialPolicy.Select(pool, req, nil)
+	if h1 == nil {
+		t.Error("Expected binomial policy to select a host")
+	}
+
+	// Test consistency - same key should map to same host
+	h2 := binomialPolicy.Select(pool, req, nil)
+	if h1 != h2 {
+		t.Error("Expected consistent mapping for same IP")
+	}
+
+	// Mark one host as unavailable
+	pool[1].setHealthy(false)
+
+	// Test selection after topology change
+	h3 := binomialPolicy.Select(pool, req, nil)
+	if h3 == nil {
+		t.Error("Expected binomial policy to select an available host")
+	}
+
+	// Should not select the unavailable host
+	if h3 == pool[1] {
+		t.Error("Binomial policy selected an unavailable host")
+	}
+
+	// Restore the host
+	pool[1].setHealthy(true)
+
+	// Test selection after restoration
+	h4 := binomialPolicy.Select(pool, req, nil)
+	if h4 == nil {
+		t.Error("Expected binomial policy to select a host after restoration")
+	}
+
+	// The selection might change due to topology restoration, but should be consistent
+	h5 := binomialPolicy.Select(pool, req, nil)
+	if h4 != h5 {
+		t.Error("Expected consistent mapping after restoration")
+	}
+}
+
+func TestBinomialSelectionPolicyChangeDetection(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+
+	// Test initial selection
+	h1 := binomialPolicy.Select(pool, req, nil)
+	if h1 == nil {
+		t.Error("Expected binomial policy to select a host")
+	}
+
+	// Test that subsequent calls with same topology don't trigger updates
+	// (change detection should prevent unnecessary updates)
+	h2 := binomialPolicy.Select(pool, req, nil)
+	if h1 != h2 {
+		t.Error("Expected consistent mapping for same IP")
+	}
+
+	// Test topology change detection
+	pool[1].setHealthy(false)
+	
+	// This should trigger an update due to topology change
+	h3 := binomialPolicy.Select(pool, req, nil)
+	if h3 == nil {
+		t.Error("Expected binomial policy to select an available host")
+	}
+
+	// Should not select the unavailable host
+	if h3 == pool[1] {
+		t.Error("Binomial policy selected an unavailable host")
+	}
+
+	// Test that subsequent calls with same changed topology are consistent
+	h4 := binomialPolicy.Select(pool, req, nil)
+	if h3 != h4 {
+		t.Error("Expected consistent mapping after topology change")
+	}
+
+	// Restore the host
+	pool[1].setHealthy(true)
+	
+	// This should trigger another update due to topology change
+	h5 := binomialPolicy.Select(pool, req, nil)
+	if h5 == nil {
+		t.Error("Expected binomial policy to select a host after restoration")
+	}
+
+	// Test consistency after restoration
+	h6 := binomialPolicy.Select(pool, req, nil)
+	if h5 != h6 {
+		t.Error("Expected consistent mapping after restoration")
+	}
+}
+
+func TestBinomialSelectionPolicyTopologyHash(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+	
+	// Test hash calculation with same topology
+	hash1 := binomialPolicy.calculateTopologyHash([]string{"host1", "host2", "host3"})
+	hash2 := binomialPolicy.calculateTopologyHash([]string{"host1", "host2", "host3"})
+	if hash1 != hash2 {
+		t.Error("Expected same hash for identical topology")
+	}
+
+	// Test hash calculation with different topology
+	hash3 := binomialPolicy.calculateTopologyHash([]string{"host1", "host2"})
+	if hash1 == hash3 {
+		t.Error("Expected different hash for different topology")
+	}
+
+	// Test hash calculation with different order (should be different)
+	hash4 := binomialPolicy.calculateTopologyHash([]string{"host2", "host1", "host3"})
+	if hash1 == hash4 {
+		t.Error("Expected different hash for different order")
+	}
+}
+
+func TestBinomialSelectionPolicyMultipleTopologyChanges(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+
+	// Test initial selection
+	h1 := binomialPolicy.Select(pool, req, nil)
+	if h1 == nil {
+		t.Error("Expected binomial policy to select a host")
+	}
+
+	// Remove first host
+	pool[0].setHealthy(false)
+	h2 := binomialPolicy.Select(pool, req, nil)
+	if h2 == nil {
+		t.Error("Expected binomial policy to select an available host")
+	}
+	if h2 == pool[0] {
+		t.Error("Binomial policy selected an unavailable host")
+	}
+
+	// Remove second host
+	pool[1].setHealthy(false)
+	h3 := binomialPolicy.Select(pool, req, nil)
+	if h3 == nil {
+		t.Error("Expected binomial policy to select an available host")
+	}
+	if h3 == pool[0] || h3 == pool[1] {
+		t.Error("Binomial policy selected an unavailable host")
+	}
+
+	// Restore first host
+	pool[0].setHealthy(true)
+	h4 := binomialPolicy.Select(pool, req, nil)
+	if h4 == nil {
+		t.Error("Expected binomial policy to select a host after restoration")
+	}
+
+	// Restore second host
+	pool[1].setHealthy(true)
+	h5 := binomialPolicy.Select(pool, req, nil)
+	if h5 == nil {
+		t.Error("Expected binomial policy to select a host after second restoration")
+	}
+
+	// Test consistency after all changes
+	h6 := binomialPolicy.Select(pool, req, nil)
+	if h5 != h6 {
+		t.Error("Expected consistent mapping after all changes")
+	}
+}
+
+func BenchmarkBinomialSelectionPolicyChangeDetection(b *testing.B) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		b.Fatalf("Provision error: %v", err)
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		binomialPolicy.Select(pool, req, nil)
+	}
+}
+
+func BenchmarkBinomialSelectionPolicyChangeDetectionWithTopologyChanges(b *testing.B) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+	if err := binomialPolicy.Provision(ctx); err != nil {
+		b.Fatalf("Provision error: %v", err)
+	}
+
+	pool := testPool()
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// Simulate topology changes every 1000 requests
+		if i%1000 == 0 {
+			pool[1].setHealthy(false)
+		} else if i%1000 == 500 {
+			pool[1].setHealthy(true)
+		}
+		
+		binomialPolicy.Select(pool, req, nil)
+	}
+}
