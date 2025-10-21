@@ -37,7 +37,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyevents"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/binomial"
+    memento "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
 
 func init() {
@@ -53,7 +53,7 @@ func init() {
 	caddy.RegisterModule(QueryHashSelection{})
 	caddy.RegisterModule(HeaderHashSelection{})
 	caddy.RegisterModule(CookieHashSelection{})
-	caddy.RegisterModule(BinomialSelection{})
+    caddy.RegisterModule(MementoSelection{})
 }
 
 // RandomSelection is a policy that selects
@@ -878,10 +878,10 @@ func loadFallbackPolicy(d *caddyfile.Dispenser) (json.RawMessage, error) {
 	return caddyconfig.JSONModuleObject(sel, "policy", name, nil), nil
 }
 
-// BinomialSelection is a policy that selects a host
+// MementoSelection is a policy that selects a host
 // using the BinomialHash algorithm for optimal load distribution
 // and minimal redistribution when the topology changes.
-type BinomialSelection struct {
+type MementoSelection struct {
 	// The field to use for hashing. Can be "ip", "uri", "header", etc.
 	// Defaults to "ip" if not specified.
 	Field string `json:"field,omitempty"`
@@ -889,15 +889,15 @@ type BinomialSelection struct {
 	// The header field name if Field is "header"
 	HeaderField string `json:"header_field,omitempty"`
 
-	// Enable consistent hashing with Memento for stability against random node removals
-	Consistent bool `json:"consistent,omitempty"`
+    // Enable consistent hashing with Memento (defaults to true)
+    Consistent bool `json:"consistent,omitempty"`
 
 	// The fallback policy to use if the field is not present. Defaults to `random`.
 	FallbackRaw json.RawMessage `json:"fallback,omitempty" caddy:"namespace=http.reverse_proxy.selection_policies inline_key=policy"`
 	fallback    Selector
 	
 	// Internal state for consistent hashing
-	consistentEngine *binomial.ConsistentEngine
+    consistentEngine *memento.ConsistentEngine
 	topology         map[string]bool // Track which nodes are currently available
 	mu               sync.RWMutex    // Protect topology updates
 	
@@ -907,15 +907,15 @@ type BinomialSelection struct {
 }
 
 // CaddyModule returns the Caddy module information.
-func (BinomialSelection) CaddyModule() caddy.ModuleInfo {
+func (MementoSelection) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.reverse_proxy.selection_policies.binomial",
-		New: func() caddy.Module { return new(BinomialSelection) },
+        ID:  "http.reverse_proxy.selection_policies.memento",
+        New: func() caddy.Module { return new(MementoSelection) },
 	}
 }
 
 // Provision sets up the module.
-func (s *BinomialSelection) Provision(ctx caddy.Context) error {
+func (s *MementoSelection) Provision(ctx caddy.Context) error {
 	if s.Field == "" {
 		s.Field = "ip" // Default to IP-based hashing
 	}
@@ -929,14 +929,19 @@ func (s *BinomialSelection) Provision(ctx caddy.Context) error {
 	}
 	s.fallback = mod.(Selector)
 	
-	// Set up consistent hashing with Memento if enabled
-	if s.Consistent {
+    // Default to consistent hashing unless explicitly disabled
+    if !s.Consistent {
+        s.Consistent = true
+    }
+
+    // Set up consistent hashing with Memento
+    if s.Consistent {
 		// Initialize topology tracking
 		s.topology = make(map[string]bool)
 		
 		// Initialize consistent engine with binomial engine
-		binomialEngine := binomial.NewBinomialEngine(0) // Start with 0, will be populated by events
-		s.consistentEngine = binomial.NewConsistentEngine(binomialEngine)
+        binomialEngine := memento.NewBinomialEngine(0) // Start with 0, will be populated by events
+        s.consistentEngine = memento.NewConsistentEngine(binomialEngine)
 		
 		// Set up event system integration
 		s.ctx = ctx
@@ -949,7 +954,7 @@ func (s *BinomialSelection) Provision(ctx caddy.Context) error {
 }
 
 // Select returns an available host, if any.
-func (s BinomialSelection) Select(pool UpstreamPool, req *http.Request, w http.ResponseWriter) *Upstream {
+func (s MementoSelection) Select(pool UpstreamPool, req *http.Request, w http.ResponseWriter) *Upstream {
 	if len(pool) == 0 {
 		return nil
 	}
@@ -1000,17 +1005,16 @@ func (s BinomialSelection) Select(pool UpstreamPool, req *http.Request, w http.R
 		return nil
 	}
 	
-	// Use binomial hashing to select the upstream
-	var bucket int
-	if s.Consistent && s.consistentEngine != nil {
-		// Use consistent engine with Memento for stable hashing
-		// Topology is already updated via events, no need for change detection
-		bucket = s.consistentEngine.GetBucket(key)
-	} else {
-		// Use standard binomial engine
-		engine := binomial.NewBinomialEngine(len(availableUpstreams))
-		bucket = engine.GetBucket(key)
-	}
+    // Use consistent engine with Memento for stable hashing (default)
+    // If the engine is not yet initialized with topology (e.g., no events in tests),
+    // fall back to a temporary engine sized to current available upstreams.
+    var bucket int
+    if s.consistentEngine == nil || s.consistentEngine.Size() == 0 {
+        engine := memento.NewBinomialEngine(len(availableUpstreams))
+        bucket = engine.GetBucket(key)
+    } else {
+        bucket = s.consistentEngine.GetBucket(key)
+    }
 
 	// Return the upstream at the selected bucket index
 	if bucket >= 0 && bucket < len(availableUpstreams) {
@@ -1022,7 +1026,7 @@ func (s BinomialSelection) Select(pool UpstreamPool, req *http.Request, w http.R
 }
 
 // UnmarshalCaddyfile sets up the module from Caddyfile tokens.
-func (s *BinomialSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (s *MementoSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next() // consume policy name
 
 	// Parse field type
@@ -1065,7 +1069,7 @@ func (s *BinomialSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 // SetEventsApp sets the events app for this selection policy
 // This should be called by the reverse proxy handler when it provisions the selection policy
-func (s *BinomialSelection) SetEventsApp(events *caddyevents.App) {
+func (s *MementoSelection) SetEventsApp(events *caddyevents.App) {
 	if s.Consistent && events != nil {
 		s.events = events
 		s.subscribeToHealthEvents()
@@ -1073,7 +1077,7 @@ func (s *BinomialSelection) SetEventsApp(events *caddyevents.App) {
 }
 
 // subscribeToHealthEvents subscribes to health check events for real-time topology updates
-func (s *BinomialSelection) subscribeToHealthEvents() {
+func (s *MementoSelection) subscribeToHealthEvents() {
 	if s.events == nil {
 		return
 	}
@@ -1086,7 +1090,7 @@ func (s *BinomialSelection) subscribeToHealthEvents() {
 }
 
 // handleHealthyEvent handles when an upstream becomes healthy
-func (s *BinomialSelection) handleHealthyEvent(ctx context.Context, event caddy.Event) error {
+func (s *MementoSelection) handleHealthyEvent(ctx context.Context, event caddy.Event) error {
 	if !s.Consistent || s.consistentEngine == nil {
 		return nil
 	}
@@ -1109,7 +1113,7 @@ func (s *BinomialSelection) handleHealthyEvent(ctx context.Context, event caddy.
 }
 
 // handleUnhealthyEvent handles when an upstream becomes unhealthy
-func (s *BinomialSelection) handleUnhealthyEvent(ctx context.Context, event caddy.Event) error {
+func (s *MementoSelection) handleUnhealthyEvent(ctx context.Context, event caddy.Event) error {
 	if !s.Consistent || s.consistentEngine == nil {
 		return nil
 	}
@@ -1132,7 +1136,7 @@ func (s *BinomialSelection) handleUnhealthyEvent(ctx context.Context, event cadd
 }
 
 // Handle implements caddyevents.Handler interface
-func (s *BinomialSelection) Handle(ctx context.Context, event caddy.Event) error {
+func (s *MementoSelection) Handle(ctx context.Context, event caddy.Event) error {
 	switch event.Name() {
 	case "healthy":
 		return s.handleHealthyEvent(ctx, event)
@@ -1156,7 +1160,7 @@ var (
 	_ Selector = (*QueryHashSelection)(nil)
 	_ Selector = (*HeaderHashSelection)(nil)
 	_ Selector = (*CookieHashSelection)(nil)
-	_ Selector = (*BinomialSelection)(nil)
+    _ Selector = (*MementoSelection)(nil)
 
 	_ caddy.Validator = (*RandomChoiceSelection)(nil)
 
@@ -1165,7 +1169,13 @@ var (
 
 	_ caddyfile.Unmarshaler = (*RandomChoiceSelection)(nil)
 	_ caddyfile.Unmarshaler = (*WeightedRoundRobinSelection)(nil)
-	_ caddyfile.Unmarshaler = (*BinomialSelection)(nil)
+    _ caddyfile.Unmarshaler = (*MementoSelection)(nil)
 	
-	_ caddyevents.Handler = (*BinomialSelection)(nil)
+    _ caddyevents.Handler = (*MementoSelection)(nil)
+
+    // Back-compat alias
+)
+
+// Backward compatibility: keep old name as alias
+var (
 )

@@ -36,18 +36,18 @@ func main() {
 	fmt.Println("Running benchmark comparison and generating CSV...")
 	
 	// Run all benchmark tests
-	benchmarks := []string{
-		"BenchmarkRendezvousVsBinomial_SameKey",
-		"BenchmarkRendezvousVsBinomial_DifferentKeys", 
-		"BenchmarkRendezvousVsBinomial_EventDrivenPerformance",
-		"BenchmarkRendezvousVsBinomial_URIHash",
-		"BenchmarkRendezvousVsBinomial_HeaderHash",
-		"BenchmarkRendezvousVsBinomial_DifferentPoolSizes",
-		"BenchmarkRendezvousVsBinomial_RendezvousPoolSizes",
-		"BenchmarkRendezvousVsBinomial_MemoryAllocation",
-		"BenchmarkRendezvousVsBinomial_ConcurrentAccess",
-		"BenchmarkRendezvousVsBinomial_ConsistencyCheck",
-	}
+    benchmarks := []string{
+        "BenchmarkRendezvousVsMemento_SameKey",
+        "BenchmarkRendezvousVsMemento_DifferentKeys", 
+        "BenchmarkRendezvousVsMemento_EventDrivenPerformance",
+        "BenchmarkRendezvousVsMemento_URIHash",
+        "BenchmarkRendezvousVsMemento_HeaderHash",
+        "BenchmarkRendezvousVsMemento_DifferentPoolSizes",
+        "BenchmarkRendezvousVsBinomial_RendezvousPoolSizes",
+        "BenchmarkRendezvousVsMemento_MemoryAllocation",
+        "BenchmarkRendezvousVsMemento_ConcurrentAccess",
+        "BenchmarkRendezvousVsMemento_ConsistencyCheck",
+    }
 	
 	var results []BenchmarkResult
 	
@@ -100,8 +100,8 @@ func parseBenchmarkOutput(output, pattern string) []BenchmarkResult {
 }
 
 func parseBenchmarkLine(line, pattern string) *BenchmarkResult {
-	// Regex to match benchmark output format:
-	// BenchmarkRendezvousVsBinomial_SameKey/Rendezvous_IPHash_SameKey-6         	 5766648	       204.7 ns/op	       0 B/op	       0 allocs/op
+    // Regex to match benchmark output format:
+    // BenchmarkRendezvousVsMemento_SameKey/Rendezvous_IPHash_SameKey-6         	 5766648	       204.7 ns/op	       0 B/op	       0 allocs/op
 	
 	re := regexp.MustCompile(`Benchmark([^/]+)/([^-]+)-(\d+)\s+(\d+)\s+([\d.]+)\s+ns/op\s+(\d+)\s+B/op\s+(\d+)\s+allocs/op`)
 	matches := re.FindStringSubmatch(line)
@@ -130,49 +130,47 @@ func parseBenchmarkLine(line, pattern string) *BenchmarkResult {
 
 func parseTestName(testName, pattern string) (algorithm, scenario string) {
 	// Parse algorithm type based on test name
-	if strings.Contains(testName, "Rendezvous") {
+    if strings.Contains(testName, "Rendezvous") {
 		algorithm = "Rendezvous"
-	} else if strings.Contains(testName, "BinomialConsistent") {
-		algorithm = "BinomialConsistent"
-	} else if strings.Contains(testName, "Binomial") {
-		algorithm = "BinomialHash"
+    } else if strings.Contains(testName, "Memento") {
+        algorithm = "Memento"
 	} else {
 		algorithm = "Unknown"
 	}
 	
 	// Parse scenario based on pattern and test name
-	switch pattern {
-	case "BenchmarkRendezvousVsBinomial_SameKey":
+    switch pattern {
+    case "BenchmarkRendezvousVsMemento_SameKey":
 		scenario = "Same Key"
-	case "BenchmarkRendezvousVsBinomial_DifferentKeys":
+    case "BenchmarkRendezvousVsMemento_DifferentKeys":
 		scenario = "Different Keys"
-	case "BenchmarkRendezvousVsBinomial_EventDrivenPerformance":
+    case "BenchmarkRendezvousVsMemento_EventDrivenPerformance":
 		if strings.Contains(testName, "WithTopologyChanges") {
 			scenario = "Event-Driven with Topology Changes"
 		} else {
 			scenario = "Event-Driven Performance"
 		}
-	case "BenchmarkRendezvousVsBinomial_URIHash":
+    case "BenchmarkRendezvousVsMemento_URIHash":
 		if strings.Contains(testName, "SameURI") {
 			scenario = "Same URI"
 		} else {
 			scenario = "Different URIs"
 		}
-	case "BenchmarkRendezvousVsBinomial_HeaderHash":
+    case "BenchmarkRendezvousVsMemento_HeaderHash":
 		if strings.Contains(testName, "SameHeader") {
 			scenario = "Same Header"
 		} else {
 			scenario = "Different Headers"
 		}
-	case "BenchmarkRendezvousVsBinomial_DifferentPoolSizes":
+    case "BenchmarkRendezvousVsMemento_DifferentPoolSizes":
 		scenario = "Pool Size Scalability"
-	case "BenchmarkRendezvousVsBinomial_RendezvousPoolSizes":
+    case "BenchmarkRendezvousVsBinomial_RendezvousPoolSizes":
 		scenario = "Pool Size Scalability"
-	case "BenchmarkRendezvousVsBinomial_MemoryAllocation":
+    case "BenchmarkRendezvousVsMemento_MemoryAllocation":
 		scenario = "Memory Allocation"
-	case "BenchmarkRendezvousVsBinomial_ConcurrentAccess":
+    case "BenchmarkRendezvousVsMemento_ConcurrentAccess":
 		scenario = "Concurrent Access"
-	case "BenchmarkRendezvousVsBinomial_ConsistencyCheck":
+    case "BenchmarkRendezvousVsMemento_ConsistencyCheck":
 		scenario = "Consistency Check"
 	default:
 		scenario = "Unknown"

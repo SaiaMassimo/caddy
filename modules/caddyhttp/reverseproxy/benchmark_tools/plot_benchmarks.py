@@ -31,11 +31,11 @@ def plot_same_key_comparison(df):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
     # Normalize order: Rendezvous, BinomialHash, BinomialConsistent (if present)
-    ordered_algs = [alg for alg in ['Rendezvous', 'BinomialHash', 'BinomialConsistent']
+    ordered_algs = [alg for alg in ['Rendezvous', 'Memento']
                     if alg in same_key_data['Algorithm'].values]
     times = [same_key_data[same_key_data['Algorithm'] == alg]['TimeNs'].iloc[0]
              for alg in ordered_algs]
-    color_map = {'Rendezvous': '#FF6B6B', 'BinomialHash': '#4ECDC4', 'BinomialConsistent': '#1E90FF'}
+    color_map = {'Rendezvous': '#FF6B6B', 'Memento': '#1E90FF'}
     colors = [color_map.get(alg, '#999999') for alg in ordered_algs]
 
     bars = ax1.bar(ordered_algs, times, color=colors, alpha=0.7, edgecolor='black')
@@ -54,16 +54,11 @@ def plot_same_key_comparison(df):
     improvements = []
     labels = []
     improv_colors = []
-    if 'BinomialHash' in ordered_algs:
-        binomial_time = same_key_data[same_key_data['Algorithm'] == 'BinomialHash']['TimeNs'].iloc[0]
-        improvements.append(rendezvous_time / binomial_time)
-        labels.append('BinomialHash')
-        improv_colors.append(color_map['BinomialHash'])
-    if 'BinomialConsistent' in ordered_algs:
-        binomial_c_time = same_key_data[same_key_data['Algorithm'] == 'BinomialConsistent']['TimeNs'].iloc[0]
-        improvements.append(rendezvous_time / binomial_c_time)
-        labels.append('BinomialConsistent')
-        improv_colors.append(color_map['BinomialConsistent'])
+    if 'Memento' in ordered_algs:
+        mem_time = same_key_data[same_key_data['Algorithm'] == 'Memento']['TimeNs'].iloc[0]
+        improvements.append(rendezvous_time / mem_time)
+        labels.append('Memento')
+        improv_colors.append(color_map['Memento'])
 
     bars2 = ax2.bar(labels, improvements, color=improv_colors, alpha=0.7, edgecolor='black')
     ax2.set_ylabel('Speedup Factor (vs Rendezvous)')
@@ -88,11 +83,11 @@ def plot_different_keys_comparison(df):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
     
     # Normalize order
-    ordered_algs = [alg for alg in ['Rendezvous', 'BinomialHash', 'BinomialConsistent']
+    ordered_algs = [alg for alg in ['Rendezvous', 'Memento']
                     if alg in diff_keys_data['Algorithm'].values]
     times = [diff_keys_data[diff_keys_data['Algorithm'] == alg]['TimeNs'].iloc[0]
              for alg in ordered_algs]
-    color_map = {'Rendezvous': '#FF6B6B', 'BinomialHash': '#4ECDC4', 'BinomialConsistent': '#1E90FF'}
+    color_map = {'Rendezvous': '#FF6B6B', 'Memento': '#1E90FF'}
     colors = [color_map.get(alg, '#999999') for alg in ordered_algs]
 
     bars = ax1.bar(ordered_algs, times, color=colors, alpha=0.7, edgecolor='black')
@@ -111,16 +106,11 @@ def plot_different_keys_comparison(df):
     improvements = []
     labels = []
     improv_colors = []
-    if 'BinomialHash' in ordered_algs:
-        binomial_time = diff_keys_data[diff_keys_data['Algorithm'] == 'BinomialHash']['TimeNs'].iloc[0]
-        improvements.append(rendezvous_time / binomial_time)
-        labels.append('BinomialHash')
-        improv_colors.append(color_map['BinomialHash'])
-    if 'BinomialConsistent' in ordered_algs:
-        binomial_c_time = diff_keys_data[diff_keys_data['Algorithm'] == 'BinomialConsistent']['TimeNs'].iloc[0]
-        improvements.append(rendezvous_time / binomial_c_time)
-        labels.append('BinomialConsistent')
-        improv_colors.append(color_map['BinomialConsistent'])
+    if 'Memento' in ordered_algs:
+        mem_time = diff_keys_data[diff_keys_data['Algorithm'] == 'Memento']['TimeNs'].iloc[0]
+        improvements.append(rendezvous_time / mem_time)
+        labels.append('Memento')
+        improv_colors.append(color_map['Memento'])
     bars2 = ax2.bar(labels, improvements, color=improv_colors, alpha=0.7, edgecolor='black')
     ax2.set_ylabel('Speedup Factor (vs Rendezvous)')
     ax2.set_title('Speedup over Rendezvous')
@@ -152,11 +142,11 @@ def plot_uri_hash_comparison(df):
     
     same_times = [
         same_uri[same_uri['Algorithm'] == 'Rendezvous']['TimeNs'].iloc[0] if len(same_uri[same_uri['Algorithm'] == 'Rendezvous']) > 0 else 0,
-        same_uri[same_uri['Algorithm'] == 'BinomialHash']['TimeNs'].iloc[0] if len(same_uri[same_uri['Algorithm'] == 'BinomialHash']) > 0 else 0
+        same_uri[same_uri['Algorithm'] == 'Memento']['TimeNs'].iloc[0] if len(same_uri[same_uri['Algorithm'] == 'Memento']) > 0 else 0
     ]
     diff_times = [
         diff_uri[diff_uri['Algorithm'] == 'Rendezvous']['TimeNs'].iloc[0] if len(diff_uri[diff_uri['Algorithm'] == 'Rendezvous']) > 0 else 0,
-        diff_uri[diff_uri['Algorithm'] == 'BinomialHash']['TimeNs'].iloc[0] if len(diff_uri[diff_uri['Algorithm'] == 'BinomialHash']) > 0 else 0
+        diff_uri[diff_uri['Algorithm'] == 'Memento']['TimeNs'].iloc[0] if len(diff_uri[diff_uri['Algorithm'] == 'Memento']) > 0 else 0
     ]
     
     bars1 = ax.bar(x - width/2, same_times, width, label='Same URI', 
@@ -168,7 +158,7 @@ def plot_uri_hash_comparison(df):
     ax.set_ylabel('Time (ns/op)')
     ax.set_title('URI Hash Performance Comparison')
     ax.set_xticks(x)
-    ax.set_xticklabels(['Rendezvous\nURIHash', 'BinomialHash\nURI'])
+    ax.set_xticklabels(['Rendezvous\nURIHash', 'Memento\nURI'])
     ax.legend()
     ax.grid(True, alpha=0.3)
     
@@ -195,8 +185,8 @@ def plot_pool_size_scalability(df):
     fig, ax = plt.subplots(figsize=(12, 8))
     
     # Separate data by algorithm
-    binomial_data = pool_data[pool_data['Algorithm'] == 'BinomialHash']
-    binomial_consistent_data = pool_data[pool_data['Algorithm'] == 'BinomialConsistent']
+    binomial_data = pool_data[pool_data['Algorithm'] == 'Memento']
+    binomial_consistent_data = pool_data[pool_data['Algorithm'] == 'Memento']
     rendezvous_data = pool_data[pool_data['Algorithm'] == 'Rendezvous']
     
     # Extract pool sizes and times for BinomialHash
@@ -241,7 +231,7 @@ def plot_pool_size_scalability(df):
     # Plot algorithms
     if binomial_sizes:
         ax.plot(binomial_sizes, binomial_times, marker='o', linewidth=3, markersize=8, 
-                color='#4ECDC4', label='BinomialHash')
+                color='#1E90FF', label='Memento')
         
         # Add value labels for BinomialHash
         for x, y in zip(binomial_sizes, binomial_times):
@@ -281,7 +271,7 @@ def plot_pool_size_scalability(df):
     
     ax.set_xlabel('Pool Size (Number of Upstreams)')
     ax.set_ylabel('Time (ns/op)')
-    ax.set_title('Pool Size Scalability: Rendezvous vs Binomial')
+    ax.set_title('Pool Size Scalability: Rendezvous vs Memento')
     ax.grid(True, alpha=0.3)
     ax.legend()
     
@@ -341,27 +331,22 @@ def plot_comprehensive_comparison(df):
     scenarios = [s for s in scenarios if s != 'Pool Size Scalability']  # Exclude scalability
 
     x = np.arange(len(scenarios))
-    width = 0.25
+    width = 0.35
 
     rendezvous_times = []
-    binomial_times = []
-    binomial_consistent_times = []
+    memento_times = []
 
     for scenario in scenarios:
         scenario_data = df[df['Scenario'] == scenario]
         rendezvous_time = scenario_data[scenario_data['Algorithm'] == 'Rendezvous']['TimeNs'].iloc[0] if len(scenario_data[scenario_data['Algorithm'] == 'Rendezvous']) > 0 else 0
-        binomial_time = scenario_data[scenario_data['Algorithm'] == 'BinomialHash']['TimeNs'].iloc[0] if len(scenario_data[scenario_data['Algorithm'] == 'BinomialHash']) > 0 else 0
-        binomial_consistent_time = scenario_data[scenario_data['Algorithm'] == 'BinomialConsistent']['TimeNs'].iloc[0] if len(scenario_data[scenario_data['Algorithm'] == 'BinomialConsistent']) > 0 else 0
+        memento_time = scenario_data[scenario_data['Algorithm'] == 'Memento']['TimeNs'].iloc[0] if len(scenario_data[scenario_data['Algorithm'] == 'Memento']) > 0 else 0
 
         rendezvous_times.append(rendezvous_time)
-        binomial_times.append(binomial_time)
-        binomial_consistent_times.append(binomial_consistent_time)
+        memento_times.append(memento_time)
 
     bars1 = ax.bar(x - width, rendezvous_times, width, label='Rendezvous', 
                    color='#FF6B6B', alpha=0.7)
-    bars2 = ax.bar(x, binomial_times, width, label='BinomialHash', 
-                   color='#4ECDC4', alpha=0.7)
-    bars3 = ax.bar(x + width, binomial_consistent_times, width, label='BinomialConsistent', 
+    bars2 = ax.bar(x, memento_times, width, label='Memento', 
                    color='#1E90FF', alpha=0.7)
     
     ax.set_xlabel('Scenario')
@@ -373,7 +358,7 @@ def plot_comprehensive_comparison(df):
     ax.grid(True, alpha=0.3)
     
     # Add value labels
-    for bars in [bars1, bars2, bars3]:
+    for bars in [bars1, bars2]:
         for bar in bars:
             height = bar.get_height()
             if height > 0:

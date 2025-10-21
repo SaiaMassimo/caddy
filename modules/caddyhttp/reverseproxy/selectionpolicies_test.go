@@ -23,6 +23,7 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
+	"github.com/caddyserver/caddy/v2/modules/caddyevents"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
@@ -854,7 +855,7 @@ func TestBinomialSelectionPolicy(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip"}
+    binomialPolicy := MementoSelection{Field: "ip"}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -888,7 +889,7 @@ func TestBinomialSelectionPolicyURI(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "uri"}
+    binomialPolicy := MementoSelection{Field: "uri"}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -920,7 +921,7 @@ func TestBinomialSelectionPolicyHeader(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{
+    binomialPolicy := MementoSelection{
 		Field:       "header",
 		HeaderField: "User-Agent",
 	}
@@ -956,7 +957,7 @@ func TestBinomialSelectionPolicyDistribution(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip"}
+    binomialPolicy := MementoSelection{Field: "ip"}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -998,7 +999,7 @@ func TestBinomialSelectionPolicyWithUnavailableHosts(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip"}
+    binomialPolicy := MementoSelection{Field: "ip"}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -1033,7 +1034,7 @@ func BenchmarkBinomialSelectionPolicy(b *testing.B) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip"}
+    binomialPolicy := MementoSelection{Field: "ip"}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
@@ -1052,7 +1053,7 @@ func BenchmarkBinomialSelectionPolicyDifferentIPs(b *testing.B) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip"}
+    binomialPolicy := MementoSelection{Field: "ip"}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
@@ -1071,7 +1072,7 @@ func TestBinomialSelectionPolicyConsistent(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+    binomialPolicy := MementoSelection{Field: "ip", Consistent: true}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -1130,7 +1131,7 @@ func TestBinomialSelectionPolicyChangeDetection(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+    binomialPolicy := MementoSelection{Field: "ip", Consistent: true}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -1194,7 +1195,7 @@ func TestBinomialSelectionPolicyMultipleTopologyChanges(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+    binomialPolicy := MementoSelection{Field: "ip", Consistent: true}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -1251,12 +1252,12 @@ func TestBinomialSelectionPolicyMultipleTopologyChanges(t *testing.T) {
 	}
 }
 
-func TestBinomialSelectionPolicyEventDriven(t *testing.T) {
+func TestMementoSelectionPolicyEventDriven(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
-	if err := binomialPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "ip", Consistent: true}
+	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
 	}
@@ -1267,16 +1268,16 @@ func TestBinomialSelectionPolicyEventDriven(t *testing.T) {
 	req.RemoteAddr = "172.0.0.1:80"
 	
 	// Initial selection
-	h1 := binomialPolicy.Select(pool, req, nil)
+	h1 := mementoPolicy.Select(pool, req, nil)
 	if h1 == nil {
-		t.Error("Expected binomial policy to select a host")
+		t.Error("Expected memento policy to select a host")
 	}
 	
 	// Test that Handle method works for healthy events
 	healthyEvent := caddy.Event{
 		Data: map[string]any{"host": "localhost:8080"},
 	}
-	err := binomialPolicy.Handle(context.Background(), healthyEvent)
+	err := mementoPolicy.Handle(context.Background(), healthyEvent)
 	if err != nil {
 		t.Errorf("Handle healthy event error: %v", err)
 	}
@@ -1285,23 +1286,129 @@ func TestBinomialSelectionPolicyEventDriven(t *testing.T) {
 	unhealthyEvent := caddy.Event{
 		Data: map[string]any{"host": "localhost:8081"},
 	}
-	err = binomialPolicy.Handle(context.Background(), unhealthyEvent)
+	err = mementoPolicy.Handle(context.Background(), unhealthyEvent)
 	if err != nil {
 		t.Errorf("Handle unhealthy event error: %v", err)
 	}
 	
 	// Test consistency after events
-	h2 := binomialPolicy.Select(pool, req, nil)
+	h2 := mementoPolicy.Select(pool, req, nil)
 	if h2 == nil {
-		t.Error("Expected binomial policy to select a host after events")
+		t.Error("Expected memento policy to select a host after events")
 	}
+}
+
+func TestMementoSelectionFullEventIntegration(t *testing.T) {
+	// Create a full Caddy context with events app
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+	
+	// Create events app
+	eventsApp := &caddyevents.App{}
+	if err := eventsApp.Provision(ctx); err != nil {
+		t.Errorf("Failed to provision events app: %v", err)
+		t.FailNow()
+	}
+	
+	// Create MementoSelection policy
+	mementoPolicy := MementoSelection{Field: "ip", Consistent: true}
+	if err := mementoPolicy.Provision(ctx); err != nil {
+		t.Errorf("Provision error: %v", err)
+		t.FailNow()
+	}
+	
+	// Test SetEventsApp integration BEFORE starting the events app
+	mementoPolicy.SetEventsApp(eventsApp)
+	
+	// Verify that events app is set
+	if mementoPolicy.events == nil {
+		t.Error("Expected events app to be set after SetEventsApp call")
+	}
+	
+	// NOW start the events app to enable subscriptions
+	if err := eventsApp.Start(); err != nil {
+		t.Errorf("Failed to start events app: %v", err)
+		t.FailNow()
+	}
+	
+	// Create test pool with specific hosts
+	pool := []*Upstream{
+		{Dial: "localhost:8080"},
+		{Dial: "localhost:8081"},
+		{Dial: "localhost:8082"},
+	}
+	
+	// Create test request
+	req, _ := http.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "172.0.0.1:80"
+	
+	// Test initial selection (should use fallback since no events yet)
+	h1 := mementoPolicy.Select(pool, req, nil)
+	if h1 == nil {
+		t.Error("Expected memento policy to select a host")
+	}
+	
+	// Simulate healthy events for all hosts using the events app
+	for _, upstream := range pool {
+		eventData := map[string]any{"host": upstream.Dial}
+		eventsApp.Emit(ctx, "healthy", eventData)
+	}
+	
+	// Verify topology is updated
+	mementoPolicy.mu.RLock()
+	topologySize := len(mementoPolicy.topology)
+	mementoPolicy.mu.RUnlock()
+	
+	if topologySize != 3 {
+		t.Errorf("Expected topology size 3, got %d", topologySize)
+	}
+	
+	// Test selection after topology is populated
+	h2 := mementoPolicy.Select(pool, req, nil)
+	if h2 == nil {
+		t.Error("Expected memento policy to select a host after topology update")
+	}
+	
+	// Test consistency - same key should select same host
+	h3 := mementoPolicy.Select(pool, req, nil)
+	if h2.Dial != h3.Dial {
+		t.Error("Expected consistent selection for same key")
+	}
+	
+	// Simulate unhealthy event for one host using the events app
+	eventData := map[string]any{"host": "localhost:8081"}
+	eventsApp.Emit(ctx, "unhealthy", eventData)
+	
+	// Verify topology is updated
+	mementoPolicy.mu.RLock()
+	topologySizeAfterUnhealthy := len(mementoPolicy.topology)
+	mementoPolicy.mu.RUnlock()
+	
+	if topologySizeAfterUnhealthy != 3 {
+		t.Errorf("Expected topology size to remain 3 after unhealthy event, got %d", topologySizeAfterUnhealthy)
+	}
+	
+	// Test selection after unhealthy event
+	h4 := mementoPolicy.Select(pool, req, nil)
+	if h4 == nil {
+		t.Error("Expected memento policy to select a host after unhealthy event")
+	}
+	
+	// The selection might change due to topology update, but should still be consistent
+	h5 := mementoPolicy.Select(pool, req, nil)
+	if h4.Dial != h5.Dial {
+		t.Error("Expected consistent selection after unhealthy event")
+	}
+	
+	// Test that the policy handles events without crashing
+	t.Logf("MementoSelection successfully integrated with events system")
 }
 
 func BenchmarkBinomialSelectionPolicyChangeDetection(b *testing.B) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+    binomialPolicy := MementoSelection{Field: "ip", Consistent: true}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
@@ -1320,7 +1427,7 @@ func BenchmarkBinomialSelectionPolicyChangeDetectionWithTopologyChanges(b *testi
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip", Consistent: true}
+    binomialPolicy := MementoSelection{Field: "ip", Consistent: true}
 	if err := binomialPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}

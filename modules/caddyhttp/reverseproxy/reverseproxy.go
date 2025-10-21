@@ -263,6 +263,11 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 			return fmt.Errorf("loading load balancing selection policy: %s", err)
 		}
 		h.LoadBalancing.SelectionPolicy = mod.(Selector)
+		
+		// Set up event integration for MementoSelection if applicable
+		if mementoSel, ok := h.LoadBalancing.SelectionPolicy.(*MementoSelection); ok {
+			mementoSel.SetEventsApp(h.events)
+		}
 	}
 	if h.CBRaw != nil {
 		mod, err := ctx.LoadModule(h, "CBRaw")

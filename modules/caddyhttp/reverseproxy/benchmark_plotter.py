@@ -1,68 +1,30 @@
 #!/usr/bin/env python3
 """
-Benchmark Plotter for Rendezvous vs BinomialHash Comparison
-Generates visual charts from benchmark results
+Benchmark Plotter for Rendezvous vs Memento Comparison
+Reads benchmark_results.csv and generates charts (does not execute benchmarks)
 """
 
 import matplotlib.pyplot as plt
 import numpy as np
-import subprocess
-import re
-import json
-from typing import Dict, List, Tuple
+import pandas as pd
 import argparse
 
 class BenchmarkPlotter:
-    def __init__(self):
-        self.results = {}
+    def __init__(self, csv_path: str):
+        self.df = pd.read_csv(csv_path)
         self.colors = {
             'rendezvous': '#FF6B6B',
-            'binomial': '#4ECDC4'
+            'memento': '#1E90FF'
         }
-        
-    def run_benchmark(self, pattern: str) -> Dict[str, float]:
-        """Run benchmark and parse results"""
-        try:
-            result = subprocess.run([
-                'go', 'test', './modules/caddyhttp/reverseproxy', 
-                '-bench', pattern, '-benchmem'
-            ], capture_output=True, text=True, cwd='/home/massimo.saia/sw/caddy')
-            
-            if result.returncode != 0:
-                print(f"Error running benchmark: {result.stderr}")
-                return {}
-                
-            return self.parse_benchmark_output(result.stdout)
-        except Exception as e:
-            print(f"Error: {e}")
-            return {}
-    
-    def parse_benchmark_output(self, output: str) -> Dict[str, float]:
-        """Parse benchmark output and extract timing data"""
-        results = {}
-        lines = output.split('\n')
-        
-        for line in lines:
-            if 'Benchmark' in line and 'ns/op' in line:
-                # Extract benchmark name and timing
-                match = re.search(r'Benchmark([^-]+)-(\d+)\s+(\d+)\s+([\d.]+)\s+ns/op', line)
-                if match:
-                    name = match.group(1)
-                    timing = float(match.group(4))
-                    results[name] = timing
-                    
-        return results
     
     def plot_same_key_comparison(self):
         """Plot comparison for same key scenario"""
-        results = self.run_benchmark('BenchmarkRendezvousVsBinomial_SameKey')
-        
-        if not results:
-            print("No results found for same key comparison")
+        same_key = self.df[self.df['Scenario'] == 'Same Key']
+        if same_key.empty:
+            print('No data for Same Key')
             return
-            
-        rendezvous_time = results.get('Rendezvous_IPHash_SameKey', 0)
-        binomial_time = results.get('Binomial_SameKey', 0)
+        rendezvous_time = float(same_key[same_key['Algorithm']=='Rendezvous']['TimeNs'].iloc[0]) if not same_key[same_key['Algorithm']=='Rendezvous'].empty else 0
+        binomial_time = float(same_key[same_key['Algorithm']=='Memento']['TimeNs'].iloc[0]) if not same_key[same_key['Algorithm']=='Memento'].empty else 0
         
         if rendezvous_time == 0 or binomial_time == 0:
             print("Missing data for same key comparison")
@@ -71,9 +33,9 @@ class BenchmarkPlotter:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
         
         # Bar chart
-        algorithms = ['Rendezvous\nIPHash', 'BinomialHash']
+        algorithms = ['Rendezvous\nIPHash', 'Memento']
         times = [rendezvous_time, binomial_time]
-        colors = [self.colors['rendezvous'], self.colors['binomial']]
+        colors = [self.colors['rendezvous'], self.colors['memento']]
         
         bars = ax1.bar(algorithms, times, color=colors, alpha=0.7, edgecolor='black')
         ax1.set_ylabel('Time (ns/op)')
@@ -91,7 +53,7 @@ class BenchmarkPlotter:
         ax2.bar(['Performance\nImprovement'], [improvement], 
                 color=self.colors['binomial'], alpha=0.7, edgecolor='black')
         ax2.set_ylabel('Speedup Factor')
-        ax2.set_title(f'BinomialHash is {improvement:.1f}x Faster')
+        ax2.set_title(f'Memento is {improvement:.1f}x Faster')
         ax2.grid(True, alpha=0.3)
         ax2.text(0, improvement + improvement*0.01, f'{improvement:.1f}x', 
                 ha='center', va='bottom', fontweight='bold', fontsize=14)
@@ -102,14 +64,12 @@ class BenchmarkPlotter:
         
     def plot_different_keys_comparison(self):
         """Plot comparison for different keys scenario"""
-        results = self.run_benchmark('BenchmarkRendezvousVsBinomial_DifferentKeys')
-        
-        if not results:
-            print("No results found for different keys comparison")
+        diff_keys = self.df[self.df['Scenario'] == 'Different Keys']
+        if diff_keys.empty:
+            print('No data for Different Keys')
             return
-            
-        rendezvous_time = results.get('Rendezvous_IPHash_DifferentKeys', 0)
-        binomial_time = results.get('Binomial_DifferentKeys', 0)
+        rendezvous_time = float(diff_keys[diff_keys['Algorithm']=='Rendezvous']['TimeNs'].iloc[0]) if not diff_keys[diff_keys['Algorithm']=='Rendezvous'].empty else 0
+        binomial_time = float(diff_keys[diff_keys['Algorithm']=='Memento']['TimeNs'].iloc[0]) if not diff_keys[diff_keys['Algorithm']=='Memento'].empty else 0
         
         if rendezvous_time == 0 or binomial_time == 0:
             print("Missing data for different keys comparison")
@@ -118,9 +78,9 @@ class BenchmarkPlotter:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
         
         # Bar chart
-        algorithms = ['Rendezvous\nIPHash', 'BinomialHash']
+        algorithms = ['Rendezvous\nIPHash', 'Memento']
         times = [rendezvous_time, binomial_time]
-        colors = [self.colors['rendezvous'], self.colors['binomial']]
+        colors = [self.colors['rendezvous'], self.colors['memento']]
         
         bars = ax1.bar(algorithms, times, color=colors, alpha=0.7, edgecolor='black')
         ax1.set_ylabel('Time (ns/op)')
@@ -138,7 +98,7 @@ class BenchmarkPlotter:
         ax2.bar(['Performance\nImprovement'], [improvement], 
                 color=self.colors['binomial'], alpha=0.7, edgecolor='black')
         ax2.set_ylabel('Speedup Factor')
-        ax2.set_title(f'BinomialHash is {improvement:.1f}x Faster')
+        ax2.set_title(f'Memento is {improvement:.1f}x Faster')
         ax2.grid(True, alpha=0.3)
         ax2.text(0, improvement + improvement*0.01, f'{improvement:.1f}x', 
                 ha='center', va='bottom', fontweight='bold', fontsize=14)
@@ -149,19 +109,16 @@ class BenchmarkPlotter:
         
     def plot_uri_hash_comparison(self):
         """Plot URI hash comparison"""
-        results = self.run_benchmark('BenchmarkRendezvousVsBinomial_URIHash')
-        
-        if not results:
-            print("No results found for URI hash comparison")
+        uri_data = self.df[self.df['Scenario'].isin(['Same URI','Different URIs'])]
+        if uri_data.empty:
+            print('No data for URI hash comparison')
             return
-            
         fig, ax = plt.subplots(figsize=(12, 8))
         
-        # Extract data
-        rendezvous_same = results.get('Rendezvous_URIHash_SameURI', 0)
-        binomial_same = results.get('Binomial_URI_SameURI', 0)
-        rendezvous_diff = results.get('Rendezvous_URIHash_DifferentURIs', 0)
-        binomial_diff = results.get('Binomial_URI_DifferentURIs', 0)
+        rendezvous_same = float(uri_data[(uri_data['Algorithm']=='Rendezvous') & (uri_data['TestName'].str.contains('SameURI'))]['TimeNs'].iloc[0]) if not uri_data[(uri_data['Algorithm']=='Rendezvous') & (uri_data['TestName'].str.contains('SameURI'))].empty else 0
+        binomial_same = float(uri_data[(uri_data['Algorithm']=='Memento') & (uri_data['TestName'].str.contains('SameURI'))]['TimeNs'].iloc[0]) if not uri_data[(uri_data['Algorithm']=='Memento') & (uri_data['TestName'].str.contains('SameURI'))].empty else 0
+        rendezvous_diff = float(uri_data[(uri_data['Algorithm']=='Rendezvous') & (uri_data['TestName'].str.contains('DifferentURIs'))]['TimeNs'].iloc[0]) if not uri_data[(uri_data['Algorithm']=='Rendezvous') & (uri_data['TestName'].str.contains('DifferentURIs'))].empty else 0
+        binomial_diff = float(uri_data[(uri_data['Algorithm']=='Memento') & (uri_data['TestName'].str.contains('DifferentURIs'))]['TimeNs'].iloc[0]) if not uri_data[(uri_data['Algorithm']=='Memento') & (uri_data['TestName'].str.contains('DifferentURIs'))].empty else 0
         
         # Prepare data for grouped bar chart
         x = np.arange(2)
@@ -179,7 +136,7 @@ class BenchmarkPlotter:
         ax.set_ylabel('Time (ns/op)')
         ax.set_title('URI Hash Performance Comparison')
         ax.set_xticks(x)
-        ax.set_xticklabels(['Rendezvous\nURIHash', 'BinomialHash\nURI'])
+        ax.set_xticklabels(['Rendezvous\nURIHash', 'Memento\nURI'])
         ax.legend()
         ax.grid(True, alpha=0.3)
         
@@ -196,36 +153,33 @@ class BenchmarkPlotter:
         
     def plot_pool_size_scalability(self):
         """Plot scalability with different pool sizes"""
-        results = self.run_benchmark('BenchmarkRendezvousVsBinomial_DifferentPoolSizes')
-        
-        if not results:
-            print("No results found for pool size scalability")
+        pool_data = self.df[self.df['Scenario'] == 'Pool Size Scalability']
+        memento_rows = pool_data[pool_data['Algorithm']=='Memento']
+        if memento_rows.empty:
+            print('No data for pool size scalability')
             return
-            
         fig, ax = plt.subplots(figsize=(12, 8))
         
         # Extract pool sizes and times
         pool_sizes = []
         times = []
         
-        for key, time in results.items():
-            if 'PoolSize' in key:
-                # Extract pool size from key like "Binomial_PoolSize_3"
-                size_match = re.search(r'PoolSize_(\d+)', key)
-                if size_match:
-                    size = int(size_match.group(1))
-                    pool_sizes.append(size)
-                    times.append(time)
+        for _, row in memento_rows.iterrows():
+            key = row['TestName']
+            if 'PoolSize_' in key:
+                size = int(key.split('PoolSize_')[1])
+                pool_sizes.append(size)
+                times.append(row['TimeNs'])
         
         # Sort by pool size
         sorted_data = sorted(zip(pool_sizes, times))
         pool_sizes, times = zip(*sorted_data)
         
         ax.plot(pool_sizes, times, marker='o', linewidth=3, markersize=8, 
-                color=self.colors['binomial'], label='BinomialHash')
+                color=self.colors['memento'], label='Memento')
         ax.set_xlabel('Pool Size (Number of Upstreams)')
         ax.set_ylabel('Time (ns/op)')
-        ax.set_title('BinomialHash Scalability with Pool Size')
+        ax.set_title('Memento Scalability with Pool Size')
         ax.grid(True, alpha=0.3)
         ax.legend()
         
@@ -240,14 +194,12 @@ class BenchmarkPlotter:
         
     def plot_concurrent_access(self):
         """Plot concurrent access performance"""
-        results = self.run_benchmark('BenchmarkRendezvousVsBinomial_ConcurrentAccess')
-        
-        if not results:
-            print("No results found for concurrent access comparison")
+        conc = self.df[self.df['Scenario'] == 'Concurrent Access']
+        if conc.empty:
+            print('No data for Concurrent Access')
             return
-            
-        rendezvous_time = results.get('Rendezvous_IPHash_Concurrent', 0)
-        binomial_time = results.get('Binomial_Concurrent', 0)
+        rendezvous_time = float(conc[conc['Algorithm']=='Rendezvous']['TimeNs'].iloc[0]) if not conc[conc['Algorithm']=='Rendezvous'].empty else 0
+        binomial_time = float(conc[conc['Algorithm']=='Memento']['TimeNs'].iloc[0]) if not conc[conc['Algorithm']=='Memento'].empty else 0
         
         if rendezvous_time == 0 or binomial_time == 0:
             print("Missing data for concurrent access comparison")
@@ -256,9 +208,9 @@ class BenchmarkPlotter:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
         
         # Bar chart
-        algorithms = ['Rendezvous\nIPHash', 'BinomialHash']
+        algorithms = ['Rendezvous\nIPHash', 'Memento']
         times = [rendezvous_time, binomial_time]
-        colors = [self.colors['rendezvous'], self.colors['binomial']]
+        colors = [self.colors['rendezvous'], self.colors['memento']]
         
         bars = ax1.bar(algorithms, times, color=colors, alpha=0.7, edgecolor='black')
         ax1.set_ylabel('Time (ns/op)')
@@ -276,7 +228,7 @@ class BenchmarkPlotter:
         ax2.bar(['Performance\nImprovement'], [improvement], 
                 color=self.colors['binomial'], alpha=0.7, edgecolor='black')
         ax2.set_ylabel('Speedup Factor')
-        ax2.set_title(f'BinomialHash is {improvement:.1f}x Faster')
+        ax2.set_title(f'Memento is {improvement:.1f}x Faster')
         ax2.grid(True, alpha=0.3)
         ax2.text(0, improvement + improvement*0.01, f'{improvement:.1f}x', 
                 ha='center', va='bottom', fontweight='bold', fontsize=14)
@@ -304,14 +256,13 @@ class BenchmarkPlotter:
         print("- concurrent_access_comparison.png")
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate benchmark comparison charts')
-    parser.add_argument('--chart', choices=['same-key', 'different-keys', 'uri-hash', 
-                                          'pool-size', 'concurrent', 'all'], 
-                       default='all', help='Chart to generate')
+    parser = argparse.ArgumentParser(description='Generate benchmark comparison charts from CSV')
+    parser.add_argument('--csv', default='modules/caddyhttp/reverseproxy/benchmark_tools/benchmark_results.csv', help='Path to benchmark_results.csv')
+    parser.add_argument('--chart', choices=['same-key', 'different-keys', 'uri-hash', 'pool-size', 'concurrent', 'all'], default='all', help='Chart to generate')
     
     args = parser.parse_args()
     
-    plotter = BenchmarkPlotter()
+    plotter = BenchmarkPlotter(args.csv)
     
     if args.chart == 'same-key':
         plotter.plot_same_key_comparison()

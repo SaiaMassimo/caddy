@@ -23,10 +23,9 @@ import (
 	"github.com/caddyserver/caddy/v2"
 )
 
-// BenchmarkRendezvousVsBinomial compares Rendezvous Hashing vs BinomialHash
-// in different scenarios to measure performance differences
+// Benchmarks compare Rendezvous Hashing vs Memento in different scenarios
 
-func BenchmarkRendezvousVsBinomial_SameKey(b *testing.B) {
+func BenchmarkRendezvousVsMemento_SameKey(b *testing.B) {
 	// Test scenario: Same key repeated many times (cache-friendly)
 	
 	// Setup Rendezvous (IP Hash)
@@ -34,13 +33,8 @@ func BenchmarkRendezvousVsBinomial_SameKey(b *testing.B) {
 	defer cancel()
 	
 	ipHashPolicy := IPHashSelection{}
-	binomialPolicy := BinomialSelection{Field: "ip"}
-	if err := binomialPolicy.Provision(ctx); err != nil {
-		b.Fatalf("Provision error: %v", err)
-	}
-	
-	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
-	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "ip"}
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -55,35 +49,23 @@ func BenchmarkRendezvousVsBinomial_SameKey(b *testing.B) {
 		}
 	})
 
-	b.Run("Binomial_SameKey", func(b *testing.B) {
+    b.Run("Memento_SameKey", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			binomialPolicy.Select(pool, req, nil)
-		}
-	})
-	
-	b.Run("BinomialConsistent_SameKey", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			binomialConsistentPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 }
 
-func BenchmarkRendezvousVsBinomial_DifferentKeys(b *testing.B) {
+func BenchmarkRendezvousVsMemento_DifferentKeys(b *testing.B) {
 	// Test scenario: Different keys each time (no cache benefit)
 	
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
 	ipHashPolicy := IPHashSelection{}
-	binomialPolicy := BinomialSelection{Field: "ip"}
-	if err := binomialPolicy.Provision(ctx); err != nil {
-		b.Fatalf("Provision error: %v", err)
-	}
-	
-	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
-	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "ip"}
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -98,34 +80,25 @@ func BenchmarkRendezvousVsBinomial_DifferentKeys(b *testing.B) {
 		}
 	})
 
-	b.Run("Binomial_DifferentKeys", func(b *testing.B) {
+    b.Run("Memento_DifferentKeys", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			req, _ := http.NewRequest("GET", "/", nil)
 			req.RemoteAddr = fmt.Sprintf("172.0.0.%d:80", i%256)
-			binomialPolicy.Select(pool, req, nil)
-		}
-	})
-	
-	b.Run("BinomialConsistent_DifferentKeys", func(b *testing.B) {
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			req, _ := http.NewRequest("GET", "/", nil)
-			req.RemoteAddr = fmt.Sprintf("172.0.0.%d:80", i%256)
-			binomialConsistentPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 }
 
-func BenchmarkRendezvousVsBinomial_EventDrivenPerformance(b *testing.B) {
+func BenchmarkRendezvousVsMemento_EventDrivenPerformance(b *testing.B) {
 	// Test scenario: Performance comparison with event-driven topology updates
 	
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
 	ipHashPolicy := IPHashSelection{}
-	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
-	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "ip", Consistent: true}
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -140,15 +113,15 @@ func BenchmarkRendezvousVsBinomial_EventDrivenPerformance(b *testing.B) {
 		}
 	})
 
-	b.Run("BinomialConsistent_EventDriven", func(b *testing.B) {
+    b.Run("Memento_EventDriven", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			binomialConsistentPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 	
 	// Test with simulated topology changes
-	b.Run("BinomialConsistent_WithTopologyChanges", func(b *testing.B) {
+    b.Run("Memento_WithTopologyChanges", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			// Simulate topology changes every 1000 requests
@@ -157,20 +130,20 @@ func BenchmarkRendezvousVsBinomial_EventDrivenPerformance(b *testing.B) {
 			} else if i%1000 == 500 {
 				pool[1].setHealthy(true)
 			}
-			binomialConsistentPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 }
 
-func BenchmarkRendezvousVsBinomial_URIHash(b *testing.B) {
+func BenchmarkRendezvousVsMemento_URIHash(b *testing.B) {
 	// Test scenario: URI-based hashing comparison
 	
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
 	uriHashPolicy := URIHashSelection{}
-	binomialPolicy := BinomialSelection{Field: "uri"}
-	if err := binomialPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "uri"}
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -184,11 +157,11 @@ func BenchmarkRendezvousVsBinomial_URIHash(b *testing.B) {
 		}
 	})
 
-	b.Run("Binomial_URI_SameURI", func(b *testing.B) {
+    b.Run("Memento_URI_SameURI", func(b *testing.B) {
 		req, _ := http.NewRequest("GET", "/test-endpoint", nil)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			binomialPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 
@@ -200,28 +173,23 @@ func BenchmarkRendezvousVsBinomial_URIHash(b *testing.B) {
 		}
 	})
 
-	b.Run("Binomial_URI_DifferentURIs", func(b *testing.B) {
+    b.Run("Memento_URI_DifferentURIs", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			req, _ := http.NewRequest("GET", fmt.Sprintf("/endpoint-%d", i%1000), nil)
-			binomialPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 }
 
-func BenchmarkRendezvousVsBinomial_DifferentPoolSizes(b *testing.B) {
+func BenchmarkRendezvousVsMemento_DifferentPoolSizes(b *testing.B) {
 	// Test scenario: Performance with different upstream pool sizes
 	
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
-	binomialPolicy := BinomialSelection{Field: "ip"}
-	if err := binomialPolicy.Provision(ctx); err != nil {
-		b.Fatalf("Provision error: %v", err)
-	}
-	
-	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
-	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "ip"}
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -237,21 +205,12 @@ func BenchmarkRendezvousVsBinomial_DifferentPoolSizes(b *testing.B) {
 			pool[i].setHealthy(true)
 		}
 
-		b.Run(fmt.Sprintf("Binomial_PoolSize_%d", size), func(b *testing.B) {
+        b.Run(fmt.Sprintf("Memento_PoolSize_%d", size), func(b *testing.B) {
 			req, _ := http.NewRequest("GET", "/", nil)
 			req.RemoteAddr = "172.0.0.1:80"
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				binomialPolicy.Select(pool, req, nil)
-			}
-		})
-		
-		b.Run(fmt.Sprintf("BinomialConsistent_PoolSize_%d", size), func(b *testing.B) {
-			req, _ := http.NewRequest("GET", "/", nil)
-			req.RemoteAddr = "172.0.0.1:80"
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				binomialConsistentPolicy.Select(pool, req, nil)
+                mementoPolicy.Select(pool, req, nil)
 			}
 		})
 	}
@@ -285,7 +244,7 @@ func BenchmarkRendezvousVsBinomial_RendezvousPoolSizes(b *testing.B) {
 	}
 }
 
-func BenchmarkRendezvousVsBinomial_HeaderHash(b *testing.B) {
+func BenchmarkRendezvousVsMemento_HeaderHash(b *testing.B) {
 	// Test scenario: Header-based hashing comparison
 	
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
@@ -296,11 +255,11 @@ func BenchmarkRendezvousVsBinomial_HeaderHash(b *testing.B) {
 		b.Fatalf("Provision error: %v", err)
 	}
 	
-	binomialPolicy := BinomialSelection{
+    mementoPolicy := MementoSelection{
 		Field:       "header",
 		HeaderField: "User-Agent",
 	}
-	if err := binomialPolicy.Provision(ctx); err != nil {
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -315,12 +274,12 @@ func BenchmarkRendezvousVsBinomial_HeaderHash(b *testing.B) {
 		}
 	})
 
-	b.Run("Binomial_Header_SameHeader", func(b *testing.B) {
+    b.Run("Memento_Header_SameHeader", func(b *testing.B) {
 		req, _ := http.NewRequest("GET", "/", nil)
 		req.Header.Set("User-Agent", "Mozilla/5.0 Test Browser")
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			binomialPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 
@@ -333,25 +292,25 @@ func BenchmarkRendezvousVsBinomial_HeaderHash(b *testing.B) {
 		}
 	})
 
-	b.Run("Binomial_Header_DifferentHeaders", func(b *testing.B) {
+    b.Run("Memento_Header_DifferentHeaders", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			req, _ := http.NewRequest("GET", "/", nil)
 			req.Header.Set("User-Agent", fmt.Sprintf("Browser-%d", i%100))
-			binomialPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 }
 
-func BenchmarkRendezvousVsBinomial_WithUnavailableHosts(b *testing.B) {
+func BenchmarkRendezvousVsMemento_WithUnavailableHosts(b *testing.B) {
 	// Test scenario: Performance when some hosts are unavailable
 	
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
 	ipHashPolicy := IPHashSelection{}
-	binomialPolicy := BinomialSelection{Field: "ip"}
-	if err := binomialPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "ip"}
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -371,28 +330,23 @@ func BenchmarkRendezvousVsBinomial_WithUnavailableHosts(b *testing.B) {
 		}
 	})
 
-	b.Run("Binomial_WithUnavailableHosts", func(b *testing.B) {
+    b.Run("Memento_WithUnavailableHosts", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			binomialPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 }
 
-func BenchmarkRendezvousVsBinomial_MemoryAllocation(b *testing.B) {
+func BenchmarkRendezvousVsMemento_MemoryAllocation(b *testing.B) {
 	// Test scenario: Memory allocation patterns
 	
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
 	ipHashPolicy := IPHashSelection{}
-	binomialPolicy := BinomialSelection{Field: "ip"}
-	if err := binomialPolicy.Provision(ctx); err != nil {
-		b.Fatalf("Provision error: %v", err)
-	}
-	
-	binomialConsistentPolicy := BinomialSelection{Field: "ip", Consistent: true}
-	if err := binomialConsistentPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "ip"}
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -408,36 +362,26 @@ func BenchmarkRendezvousVsBinomial_MemoryAllocation(b *testing.B) {
 		}
 	})
 
-	b.Run("Binomial_Memory", func(b *testing.B) {
+    b.Run("Memento_Memory", func(b *testing.B) {
 		req, _ := http.NewRequest("GET", "/", nil)
 		req.RemoteAddr = "172.0.0.1:80"
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			binomialPolicy.Select(pool, req, nil)
-		}
-	})
-	
-	b.Run("BinomialConsistent_Memory", func(b *testing.B) {
-		req, _ := http.NewRequest("GET", "/", nil)
-		req.RemoteAddr = "172.0.0.1:80"
-		b.ResetTimer()
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			binomialConsistentPolicy.Select(pool, req, nil)
+            mementoPolicy.Select(pool, req, nil)
 		}
 	})
 }
 
-func BenchmarkRendezvousVsBinomial_ConcurrentAccess(b *testing.B) {
+func BenchmarkRendezvousVsMemento_ConcurrentAccess(b *testing.B) {
 	// Test scenario: Concurrent access patterns
 	
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
 	ipHashPolicy := IPHashSelection{}
-	binomialPolicy := BinomialSelection{Field: "ip"}
-	if err := binomialPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "ip"}
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -453,26 +397,26 @@ func BenchmarkRendezvousVsBinomial_ConcurrentAccess(b *testing.B) {
 		})
 	})
 
-	b.Run("Binomial_Concurrent", func(b *testing.B) {
+    b.Run("Memento_Concurrent", func(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			req, _ := http.NewRequest("GET", "/", nil)
 			req.RemoteAddr = "172.0.0.1:80"
 			for pb.Next() {
-				binomialPolicy.Select(pool, req, nil)
+                mementoPolicy.Select(pool, req, nil)
 			}
 		})
 	})
 }
 
-func BenchmarkRendezvousVsBinomial_ConsistencyCheck(b *testing.B) {
+func BenchmarkRendezvousVsMemento_ConsistencyCheck(b *testing.B) {
 	// Test scenario: Consistency of hash distribution
 	
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
 	
 	ipHashPolicy := IPHashSelection{}
-	binomialPolicy := BinomialSelection{Field: "ip"}
-	if err := binomialPolicy.Provision(ctx); err != nil {
+    mementoPolicy := MementoSelection{Field: "ip"}
+    if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
 
@@ -490,13 +434,13 @@ func BenchmarkRendezvousVsBinomial_ConsistencyCheck(b *testing.B) {
 		}
 	})
 
-	b.Run("Binomial_Consistency", func(b *testing.B) {
+    b.Run("Memento_Consistency", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			for j := 0; j < numKeys; j++ {
 				req, _ := http.NewRequest("GET", "/", nil)
 				req.RemoteAddr = fmt.Sprintf("172.0.0.%d:80", j%256)
-				binomialPolicy.Select(pool, req, nil)
+                mementoPolicy.Select(pool, req, nil)
 			}
 		}
 	})

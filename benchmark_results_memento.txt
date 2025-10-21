@@ -1,0 +1,37 @@
+{"level":"warn","ts":1760962771.470521,"msg":"The 'tls_trusted_ca_certs' field is deprecated. Use the 'tls_trust_pool' field instead."}
+{"level":"warn","ts":1760962771.4706242,"msg":"The 'tls_trusted_ca_certs' field is deprecated. Use the 'tls_trust_pool' field instead."}
+goos: linux
+goarch: amd64
+pkg: github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy
+cpu: Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz
+BenchmarkRendezvousVsMemento_SameKey/Rendezvous_IPHash_SameKey-6         	 5318094	       191.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_SameKey/Memento_SameKey-6                   	13967049	        86.64 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_DifferentKeys/Rendezvous_IPHash_DifferentKeys-6         	  631104	      1899 ns/op	     528 B/op	       4 allocs/op
+BenchmarkRendezvousVsMemento_DifferentKeys/Memento_DifferentKeys-6                   	  868234	      1553 ns/op	     528 B/op	       4 allocs/op
+BenchmarkRendezvousVsMemento_EventDrivenPerformance/Rendezvous_IPHash_EventDriven-6  	 5878854	       201.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_EventDrivenPerformance/Memento_EventDriven-6            	14344321	        83.94 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_EventDrivenPerformance/Memento_WithTopologyChanges-6    	13099993	        85.58 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_URIHash/Rendezvous_URIHash_SameURI-6                    	 8317683	       145.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_URIHash/Memento_URI_SameURI-6                           	19137168	        63.51 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_URIHash/Rendezvous_URIHash_DifferentURIs-6              	  733346	      1855 ns/op	     534 B/op	       4 allocs/op
+BenchmarkRendezvousVsMemento_URIHash/Memento_URI_DifferentURIs-6                     	 1000000	      1571 ns/op	     534 B/op	       4 allocs/op
+BenchmarkRendezvousVsMemento_DifferentPoolSizes/Memento_PoolSize_3-6                 	13348610	        83.62 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_DifferentPoolSizes/Memento_PoolSize_5-6                 	 4056855	       260.7 ns/op	      48 B/op	       1 allocs/op
+BenchmarkRendezvousVsMemento_DifferentPoolSizes/Memento_PoolSize_10-6                	 2882954	       398.1 ns/op	      80 B/op	       1 allocs/op
+BenchmarkRendezvousVsMemento_DifferentPoolSizes/Memento_PoolSize_20-6                	 1885375	       666.8 ns/op	     160 B/op	       1 allocs/op
+BenchmarkRendezvousVsMemento_DifferentPoolSizes/Memento_PoolSize_50-6                	 1000000	      1253 ns/op	     416 B/op	       1 allocs/op
+BenchmarkRendezvousVsMemento_DifferentPoolSizes/Memento_PoolSize_100-6               	  503235	      2360 ns/op	     896 B/op	       1 allocs/op
+BenchmarkRendezvousVsMemento_HeaderHash/Rendezvous_HeaderHash_SameHeader-6           	 4672047	       267.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_HeaderHash/Memento_Header_SameHeader-6                  	 7969244	       127.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_HeaderHash/Rendezvous_HeaderHash_DifferentHeaders-6     	  545554	      2233 ns/op	     896 B/op	       6 allocs/op
+BenchmarkRendezvousVsMemento_HeaderHash/Memento_Header_DifferentHeaders-6            	  720850	      1898 ns/op	     896 B/op	       6 allocs/op
+BenchmarkRendezvousVsMemento_WithUnavailableHosts/Rendezvous_IPHash_WithUnavailableHosts-6         	13694317	        87.24 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_WithUnavailableHosts/Memento_WithUnavailableHosts-6                   	15509466	        72.95 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_MemoryAllocation/Rendezvous_IPHash_Memory-6                           	 5892314	       197.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_MemoryAllocation/Memento_Memory-6                                     	13921332	        83.31 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_ConcurrentAccess/Rendezvous_IPHash_Concurrent-6                       	28741574	        35.91 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_ConcurrentAccess/Memento_Concurrent-6                                 	14839154	        80.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkRendezvousVsMemento_ConsistencyCheck/Rendezvous_IPHash_Consistency-6                      	     816	   1856313 ns/op	  528283 B/op	    4001 allocs/op
+BenchmarkRendezvousVsMemento_ConsistencyCheck/Memento_Consistency-6                                	     850	   1466162 ns/op	  528276 B/op	    4001 allocs/op
+PASS
+ok  	github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy	41.993s
