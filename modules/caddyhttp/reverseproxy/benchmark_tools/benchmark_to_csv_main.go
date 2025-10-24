@@ -43,10 +43,13 @@ func main() {
         "BenchmarkRendezvousVsMemento_URIHash",
         "BenchmarkRendezvousVsMemento_HeaderHash",
         "BenchmarkRendezvousVsMemento_DifferentPoolSizes",
-        "BenchmarkRendezvousVsBinomial_RendezvousPoolSizes",
+        "BenchmarkRendezvous_PoolSizes",
         "BenchmarkRendezvousVsMemento_MemoryAllocation",
         "BenchmarkRendezvousVsMemento_ConcurrentAccess",
+        "BenchmarkRendezvousVsMemento_RealisticConcurrent",
         "BenchmarkRendezvousVsMemento_ConsistencyCheck",
+        "BenchmarkMementoVsRendezvous_WithRemovedNodes",
+        "BenchmarkMementoVsRendezvous_100Nodes_ProgressiveRemoval",
     }
 	
 	var results []BenchmarkResult
@@ -69,9 +72,9 @@ func main() {
 }
 
 func runBenchmark(benchmarkPattern string) []BenchmarkResult {
-	cmd := exec.Command("go", "test", "../", 
-		"-bench", benchmarkPattern, "-benchmem")
-	cmd.Dir = "/home/massimo.saia/sw/caddy/modules/caddyhttp/reverseproxy/benchmark_tools"
+	cmd := exec.Command("go", "test", 
+		"-bench", benchmarkPattern, "-benchmem", "-run", "^$")
+	cmd.Dir = "/home/massimo.saia/sw/caddy/modules/caddyhttp/reverseproxy"
 	
 	output, err := cmd.Output()
 	if err != nil {
@@ -164,14 +167,20 @@ func parseTestName(testName, pattern string) (algorithm, scenario string) {
 		}
     case "BenchmarkRendezvousVsMemento_DifferentPoolSizes":
 		scenario = "Pool Size Scalability"
-    case "BenchmarkRendezvousVsBinomial_RendezvousPoolSizes":
+    case "BenchmarkRendezvous_PoolSizes":
 		scenario = "Pool Size Scalability"
     case "BenchmarkRendezvousVsMemento_MemoryAllocation":
 		scenario = "Memory Allocation"
     case "BenchmarkRendezvousVsMemento_ConcurrentAccess":
 		scenario = "Concurrent Access"
+    case "BenchmarkRendezvousVsMemento_RealisticConcurrent":
+		scenario = "Realistic Concurrent"
     case "BenchmarkRendezvousVsMemento_ConsistencyCheck":
 		scenario = "Consistency Check"
+    case "BenchmarkMementoVsRendezvous_WithRemovedNodes":
+		scenario = "Fixed Removals"
+    case "BenchmarkMementoVsRendezvous_100Nodes_ProgressiveRemoval":
+		scenario = "Progressive Removals"
 	default:
 		scenario = "Unknown"
 	}

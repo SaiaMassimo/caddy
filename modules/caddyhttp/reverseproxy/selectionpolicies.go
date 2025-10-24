@@ -889,9 +889,6 @@ type MementoSelection struct {
 	// The header field name if Field is "header"
 	HeaderField string `json:"header_field,omitempty"`
 
-    // Enable consistent hashing with Memento (defaults to true)
-    Consistent bool `json:"consistent,omitempty"`
-
 	// The fallback policy to use if the field is not present. Defaults to `random`.
 	FallbackRaw json.RawMessage `json:"fallback,omitempty" caddy:"namespace=http.reverse_proxy.selection_policies inline_key=policy"`
 	fallback    Selector
@@ -929,26 +926,18 @@ func (s *MementoSelection) Provision(ctx caddy.Context) error {
 	}
 	s.fallback = mod.(Selector)
 	
-    // Default to consistent hashing unless explicitly disabled
-    if !s.Consistent {
-        s.Consistent = true
-    }
-
-    // Set up consistent hashing with Memento
-    if s.Consistent {
-		// Initialize topology tracking
-		s.topology = make(map[string]bool)
-		
-		// Initialize consistent engine with binomial engine
-        binomialEngine := memento.NewBinomialEngine(0) // Start with 0, will be populated by events
-        s.consistentEngine = memento.NewConsistentEngine(binomialEngine)
-		
-		// Set up event system integration
-		s.ctx = ctx
-		
-		// Note: Event subscription will be handled by the reverse proxy handler
-		// when it provisions this selection policy, not during our Provision phase
-	}
+	// Initialize topology tracking
+	s.topology = make(map[string]bool)
+	
+	// Initialize consistent engine with binomial engine
+	binomialEngine := memento.NewBinomialEngine(0) // Start with 0, will be populated by events
+	s.consistentEngine = memento.NewConsistentEngine(binomialEngine)
+	
+	// Set up event system integration
+	s.ctx = ctx
+	
+	// Note: Event subscription will be handled by the reverse proxy handler
+	// when it provisions this selection policy, not during our Provision phase
 	
 	return nil
 }
@@ -993,32 +982,22 @@ func (s MementoSelection) Select(pool UpstreamPool, req *http.Request, w http.Re
 		return s.fallback.Select(pool, req, w)
 	}
 
-	// Create binomial engine with the number of available upstreams
-	availableUpstreams := make([]*Upstream, 0, len(pool))
-	for _, up := range pool {
-		if up.Available() {
-			availableUpstreams = append(availableUpstreams, up)
-		}
-	}
-
-	if len(availableUpstreams) == 0 {
-		return nil
+	// Use consistent engine with Memento for stable hashing (default)
+	// If the engine is not yet initialized with topology (e.g., no events in tests),
+	// fall back to random selection.
+	var bucket int
+	if s.consistentEngine == nil || s.consistentEngine.Size() == 0 {
+		// Fallback: use random selection if engine not initialized
+		return s.fallback.Select(pool, req, w)
 	}
 	
-    // Use consistent engine with Memento for stable hashing (default)
-    // If the engine is not yet initialized with topology (e.g., no events in tests),
-    // fall back to a temporary engine sized to current available upstreams.
-    var bucket int
-    if s.consistentEngine == nil || s.consistentEngine.Size() == 0 {
-        engine := memento.NewBinomialEngine(len(availableUpstreams))
-        bucket = engine.GetBucket(key)
-    } else {
-        bucket = s.consistentEngine.GetBucket(key)
-    }
-
+	// Get bucket from consistent engine
+	bucket = s.consistentEngine.GetBucket(key)
+	
 	// Return the upstream at the selected bucket index
-	if bucket >= 0 && bucket < len(availableUpstreams) {
-		return availableUpstreams[bucket]
+	// Use modulo to ensure we stay within pool bounds
+	if bucket >= 0 && bucket < len(pool) {
+		return pool[bucket]
 	}
 
 	// Fallback to random selection if something goes wrong
@@ -1046,8 +1025,6 @@ func (s *MementoSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			s.HeaderField = d.Val()
-		case "consistent":
-			s.Consistent = true
 		case "fallback":
 			if !d.NextArg() {
 				return d.ArgErr()
@@ -1070,9 +1047,29 @@ func (s *MementoSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 // SetEventsApp sets the events app for this selection policy
 // This should be called by the reverse proxy handler when it provisions the selection policy
 func (s *MementoSelection) SetEventsApp(events *caddyevents.App) {
-	if s.Consistent && events != nil {
+	if events != nil {
 		s.events = events
 		s.subscribeToHealthEvents()
+	}
+}
+
+// PopulateInitialTopology populates the Memento topology with initial upstreams
+// This should be called by the reverse proxy handler after SetEventsApp
+func (s *MementoSelection) PopulateInitialTopology(upstreams []*Upstream) {
+	if s.consistentEngine == nil {
+		return
+	}
+	
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Add all configured upstreams as healthy
+	for _, upstream := range upstreams {
+		host := upstream.String()
+		if !s.topology[host] {
+			s.consistentEngine.AddNode(host)
+			s.topology[host] = true
+		}
 	}
 }
 
@@ -1091,7 +1088,7 @@ func (s *MementoSelection) subscribeToHealthEvents() {
 
 // handleHealthyEvent handles when an upstream becomes healthy
 func (s *MementoSelection) handleHealthyEvent(ctx context.Context, event caddy.Event) error {
-	if !s.Consistent || s.consistentEngine == nil {
+	if s.consistentEngine == nil {
 		return nil
 	}
 	
@@ -1114,7 +1111,7 @@ func (s *MementoSelection) handleHealthyEvent(ctx context.Context, event caddy.E
 
 // handleUnhealthyEvent handles when an upstream becomes unhealthy
 func (s *MementoSelection) handleUnhealthyEvent(ctx context.Context, event caddy.Event) error {
-	if !s.Consistent || s.consistentEngine == nil {
+	if s.consistentEngine == nil {
 		return nil
 	}
 	

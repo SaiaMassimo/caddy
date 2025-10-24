@@ -185,22 +185,21 @@ def plot_pool_size_scalability(df):
     fig, ax = plt.subplots(figsize=(12, 8))
     
     # Separate data by algorithm
-    binomial_data = pool_data[pool_data['Algorithm'] == 'Memento']
-    binomial_consistent_data = pool_data[pool_data['Algorithm'] == 'Memento']
+    memento_data = pool_data[pool_data['Algorithm'] == 'Memento']
     rendezvous_data = pool_data[pool_data['Algorithm'] == 'Rendezvous']
     
-    # Extract pool sizes and times for BinomialHash
-    binomial_sizes = []
-    binomial_times = []
+    # Extract pool sizes and times for Memento
+    memento_sizes = []
+    memento_times = []
     
-    for _, row in binomial_data.iterrows():
+    for _, row in memento_data.iterrows():
         test_name = row['TestName']
         if 'PoolSize_' in test_name:
             size_str = test_name.split('PoolSize_')[1]
             try:
                 size = int(size_str)
-                binomial_sizes.append(size)
-                binomial_times.append(row['TimeNs'])
+                memento_sizes.append(size)
+                memento_times.append(row['TimeNs'])
             except ValueError:
                 continue
     
@@ -220,44 +219,22 @@ def plot_pool_size_scalability(df):
                 continue
     
     # Sort by pool size
-    if binomial_sizes:
-        binomial_sorted = sorted(zip(binomial_sizes, binomial_times))
-        binomial_sizes, binomial_times = zip(*binomial_sorted)
+    if memento_sizes:
+        memento_sorted = sorted(zip(memento_sizes, memento_times))
+        memento_sizes, memento_times = zip(*memento_sorted)
         
     if rendezvous_sizes:
         rendezvous_sorted = sorted(zip(rendezvous_sizes, rendezvous_times))
         rendezvous_sizes, rendezvous_times = zip(*rendezvous_sorted)
     
     # Plot algorithms
-    if binomial_sizes:
-        ax.plot(binomial_sizes, binomial_times, marker='o', linewidth=3, markersize=8, 
+    if memento_sizes:
+        ax.plot(memento_sizes, memento_times, marker='o', linewidth=3, markersize=8, 
                 color='#1E90FF', label='Memento')
         
-        # Add value labels for BinomialHash
-        for x, y in zip(binomial_sizes, binomial_times):
+        # Add value labels for Memento
+        for x, y in zip(memento_sizes, memento_times):
             ax.annotate(f'{y:.0f}', (x, y), textcoords="offset points", 
-                       xytext=(0,10), ha='center', fontweight='bold', fontsize=8)
-    
-    # BinomialConsistent
-    consistent_sizes = []
-    consistent_times = []
-    for _, row in binomial_consistent_data.iterrows():
-        test_name = row['TestName']
-        if 'PoolSize_' in test_name:
-            size_str = test_name.split('PoolSize_')[1]
-            try:
-                size = int(size_str)
-                consistent_sizes.append(size)
-                consistent_times.append(row['TimeNs'])
-            except ValueError:
-                continue
-    if consistent_sizes:
-        consistent_sorted = sorted(zip(consistent_sizes, consistent_times))
-        consistent_sizes, consistent_times = zip(*consistent_sorted)
-        ax.plot(consistent_sizes, consistent_times, marker='^', linewidth=3, markersize=8,
-                color='#1E90FF', label='BinomialConsistent')
-        for x, y in zip(consistent_sizes, consistent_times):
-            ax.annotate(f'{y:.0f}', (x, y), textcoords="offset points",
                        xytext=(0,10), ha='center', fontweight='bold', fontsize=8)
 
     if rendezvous_sizes:
@@ -292,7 +269,7 @@ def plot_concurrent_access(df):
     # Bar chart
     algorithms = concurrent_data['Algorithm'].tolist()
     times = concurrent_data['TimeNs'].tolist()
-    colors = ['#FF6B6B' if alg == 'Rendezvous' else '#4ECDC4' for alg in algorithms]
+    colors = ['#FF6B6B' if alg == 'Rendezvous' else '#1E90FF' for alg in algorithms]
     
     bars = ax1.bar(algorithms, times, color=colors, alpha=0.7, edgecolor='black')
     ax1.set_ylabel('Time (ns/op)')
@@ -307,13 +284,13 @@ def plot_concurrent_access(df):
     
     # Performance improvement chart
     rendezvous_time = concurrent_data[concurrent_data['Algorithm'] == 'Rendezvous']['TimeNs'].iloc[0]
-    binomial_time = concurrent_data[concurrent_data['Algorithm'] == 'BinomialHash']['TimeNs'].iloc[0]
-    improvement = rendezvous_time / binomial_time
+    memento_time = concurrent_data[concurrent_data['Algorithm'] == 'Memento']['TimeNs'].iloc[0]
+    improvement = rendezvous_time / memento_time
     
     ax2.bar(['Performance\nImprovement'], [improvement], 
-            color='#4ECDC4', alpha=0.7, edgecolor='black')
+            color='#1E90FF', alpha=0.7, edgecolor='black')
     ax2.set_ylabel('Speedup Factor')
-    ax2.set_title(f'BinomialHash is {improvement:.1f}x Faster')
+    ax2.set_title(f'Memento is {improvement:.1f}x Faster')
     ax2.grid(True, alpha=0.3)
     ax2.text(0, improvement + improvement*0.01, f'{improvement:.1f}x', 
             ha='center', va='bottom', fontweight='bold', fontsize=14)
@@ -351,7 +328,7 @@ def plot_comprehensive_comparison(df):
     
     ax.set_xlabel('Scenario')
     ax.set_ylabel('Time (ns/op)')
-    ax.set_title('Comprehensive Performance Comparison: Rendezvous vs BinomialHash')
+    ax.set_title('Comprehensive Performance Comparison: Rendezvous vs Memento')
     ax.set_xticks(x)
     ax.set_xticklabels(scenarios, rotation=45, ha='right')
     ax.legend()
@@ -369,6 +346,166 @@ def plot_comprehensive_comparison(df):
     plt.savefig('comprehensive_comparison.png', dpi=300, bbox_inches='tight')
     plt.show()
 
+def plot_fixed_removals(df):
+    """Plot performance with fixed number of removed nodes"""
+    removals_data = df[df['Scenario'] == 'Fixed Removals']
+    
+    if len(removals_data) == 0:
+        print("No fixed removals data found")
+        return
+    
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Separate data by algorithm
+    memento_data = removals_data[removals_data['Algorithm'] == 'Memento']
+    rendezvous_data = removals_data[removals_data['Algorithm'] == 'Rendezvous']
+    
+    # Extract pool sizes from test names
+    memento_sizes = []
+    memento_times = []
+    
+    for _, row in memento_data.iterrows():
+        test_name = row['TestName']
+        if 'Nodes_' in test_name:
+            # Extract size from format "Memento_20Nodes_5Removed"
+            size_str = test_name.split('Nodes_')[0].replace('Memento_', '')
+            try:
+                size = int(size_str)
+                memento_sizes.append(size)
+                memento_times.append(row['TimeNs'])
+            except ValueError:
+                continue
+    
+    rendezvous_sizes = []
+    rendezvous_times = []
+    
+    for _, row in rendezvous_data.iterrows():
+        test_name = row['TestName']
+        if 'Nodes_' in test_name:
+            size_str = test_name.split('Nodes_')[0].replace('Rendezvous_', '')
+            try:
+                size = int(size_str)
+                rendezvous_sizes.append(size)
+                rendezvous_times.append(row['TimeNs'])
+            except ValueError:
+                continue
+    
+    # Sort by pool size
+    if memento_sizes:
+        memento_sorted = sorted(zip(memento_sizes, memento_times))
+        memento_sizes, memento_times = zip(*memento_sorted)
+        
+    if rendezvous_sizes:
+        rendezvous_sorted = sorted(zip(rendezvous_sizes, rendezvous_times))
+        rendezvous_sizes, rendezvous_times = zip(*rendezvous_sorted)
+    
+    # Plot algorithms
+    if memento_sizes:
+        ax.plot(memento_sizes, memento_times, marker='o', linewidth=3, markersize=8, 
+                color='#1E90FF', label='Memento (5 removed)')
+        
+        for x, y in zip(memento_sizes, memento_times):
+            ax.annotate(f'{y:.0f}', (x, y), textcoords="offset points", 
+                       xytext=(0,10), ha='center', fontweight='bold', fontsize=8)
+
+    if rendezvous_sizes:
+        ax.plot(rendezvous_sizes, rendezvous_times, marker='s', linewidth=3, markersize=8, 
+                color='#FF6B6B', label='Rendezvous (5 unavailable)')
+        
+        for x, y in zip(rendezvous_sizes, rendezvous_times):
+            ax.annotate(f'{y:.0f}', (x, y), textcoords="offset points", 
+                       xytext=(0,-15), ha='center', fontweight='bold', fontsize=8)
+    
+    ax.set_xlabel('Total Pool Size')
+    ax.set_ylabel('Time (ns/op)')
+    ax.set_title('Performance with 5 Nodes Removed/Unavailable')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    plt.tight_layout()
+    plt.savefig('fixed_removals.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_progressive_removals(df):
+    """Plot performance with progressive node removals"""
+    removals_data = df[df['Scenario'] == 'Progressive Removals']
+    
+    if len(removals_data) == 0:
+        print("No progressive removals data found")
+        return
+    
+    fig, ax = plt.subplots(figsize=(12, 8))
+    
+    # Separate data by algorithm
+    memento_data = removals_data[removals_data['Algorithm'] == 'Memento']
+    rendezvous_data = removals_data[removals_data['Algorithm'] == 'Rendezvous']
+    
+    # Extract number of removed nodes
+    memento_removed = []
+    memento_times = []
+    
+    for _, row in memento_data.iterrows():
+        test_name = row['TestName']
+        if 'Removed' in test_name:
+            # Extract number from format "Memento_100Nodes_50Removed"
+            removed_str = test_name.split('Removed')[0].split('_')[-1]
+            try:
+                removed = int(removed_str)
+                memento_removed.append(removed)
+                memento_times.append(row['TimeNs'])
+            except ValueError:
+                continue
+    
+    rendezvous_removed = []
+    rendezvous_times = []
+    
+    for _, row in rendezvous_data.iterrows():
+        test_name = row['TestName']
+        if 'Unavailable' in test_name:
+            removed_str = test_name.split('Unavailable')[0].split('_')[-1]
+            try:
+                removed = int(removed_str)
+                rendezvous_removed.append(removed)
+                rendezvous_times.append(row['TimeNs'])
+            except ValueError:
+                continue
+    
+    # Sort by number of removed nodes
+    if memento_removed:
+        memento_sorted = sorted(zip(memento_removed, memento_times))
+        memento_removed, memento_times = zip(*memento_sorted)
+        
+    if rendezvous_removed:
+        rendezvous_sorted = sorted(zip(rendezvous_removed, rendezvous_times))
+        rendezvous_removed, rendezvous_times = zip(*rendezvous_sorted)
+    
+    # Plot algorithms
+    if memento_removed:
+        ax.plot(memento_removed, memento_times, marker='o', linewidth=3, markersize=8, 
+                color='#1E90FF', label='Memento')
+        
+        for x, y in zip(memento_removed, memento_times):
+            ax.annotate(f'{y:.0f}', (x, y), textcoords="offset points", 
+                       xytext=(0,10), ha='center', fontweight='bold', fontsize=8)
+
+    if rendezvous_removed:
+        ax.plot(rendezvous_removed, rendezvous_times, marker='s', linewidth=3, markersize=8, 
+                color='#FF6B6B', label='Rendezvous')
+        
+        for x, y in zip(rendezvous_removed, rendezvous_times):
+            ax.annotate(f'{y:.0f}', (x, y), textcoords="offset points", 
+                       xytext=(0,-15), ha='center', fontweight='bold', fontsize=8)
+    
+    ax.set_xlabel('Number of Nodes Removed')
+    ax.set_ylabel('Time (ns/op)')
+    ax.set_title('Performance with Progressive Node Removals (100 total nodes)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    plt.tight_layout()
+    plt.savefig('progressive_removals.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
 def plot_all_charts(df):
     """Generate all comparison charts"""
     print("Generating all benchmark comparison charts...")
@@ -379,6 +516,8 @@ def plot_all_charts(df):
     plot_pool_size_scalability(df)
     plot_concurrent_access(df)
     plot_comprehensive_comparison(df)
+    plot_fixed_removals(df)
+    plot_progressive_removals(df)
     
     print("All charts generated successfully!")
     print("Files saved:")
@@ -388,12 +527,15 @@ def plot_all_charts(df):
     print("- pool_size_scalability.png")
     print("- concurrent_access_comparison.png")
     print("- comprehensive_comparison.png")
+    print("- fixed_removals.png")
+    print("- progressive_removals.png")
 
 def main():
     parser = argparse.ArgumentParser(description='Generate benchmark comparison charts')
     parser.add_argument('--csv', default='benchmark_results.csv', help='CSV file with benchmark results')
     parser.add_argument('--chart', choices=['same-key', 'different-keys', 'uri-hash', 
-                                          'pool-size', 'concurrent', 'comprehensive', 'all'], 
+                                          'pool-size', 'concurrent', 'comprehensive', 
+                                          'fixed-removals', 'progressive-removals', 'all'], 
                        default='all', help='Chart to generate')
     
     args = parser.parse_args()
@@ -416,6 +558,10 @@ def main():
         plot_concurrent_access(df)
     elif args.chart == 'comprehensive':
         plot_comprehensive_comparison(df)
+    elif args.chart == 'fixed-removals':
+        plot_fixed_removals(df)
+    elif args.chart == 'progressive-removals':
+        plot_progressive_removals(df)
     elif args.chart == 'all':
         plot_all_charts(df)
 

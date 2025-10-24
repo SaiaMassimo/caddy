@@ -1,34 +1,31 @@
 TestName,Algorithm,TimeNs,MemoryBytes,Allocations,Scenario
-Rendezvous_IPHash_SameKey,Rendezvous,191.40,0,0,Same Key
-Memento_SameKey,Memento,83.94,0,0,Same Key
-Rendezvous_IPHash_DifferentKeys,Rendezvous,1717.00,528,4,Different Keys
-Memento_DifferentKeys,Memento,1444.00,528,4,Different Keys
-Rendezvous_IPHash_EventDriven,Rendezvous,199.90,0,0,Event-Driven Performance
-Memento_EventDriven,Memento,82.77,0,0,Event-Driven Performance
-Memento_WithTopologyChanges,Memento,84.91,0,0,Event-Driven with Topology Changes
-Rendezvous_URIHash_SameURI,Rendezvous,144.30,0,0,Same URI
-Memento_URI_SameURI,Memento,64.68,0,0,Same URI
-Rendezvous_URIHash_DifferentURIs,Rendezvous,1769.00,534,4,Different URIs
-Memento_URI_DifferentURIs,Memento,1543.00,534,4,Different URIs
-Rendezvous_HeaderHash_SameHeader,Rendezvous,268.30,0,0,Same Header
-Memento_Header_SameHeader,Memento,125.10,0,0,Same Header
-Rendezvous_HeaderHash_DifferentHeaders,Rendezvous,2489.00,896,6,Different Headers
-Memento_Header_DifferentHeaders,Memento,1976.00,896,6,Different Headers
-Memento_PoolSize_3,Memento,84.34,0,0,Pool Size Scalability
-Memento_PoolSize_5,Memento,275.60,48,1,Pool Size Scalability
-Memento_PoolSize_10,Memento,376.40,80,1,Pool Size Scalability
-Memento_PoolSize_20,Memento,618.80,160,1,Pool Size Scalability
-Memento_PoolSize_50,Memento,1329.00,416,1,Pool Size Scalability
-Memento_PoolSize_100,Memento,2230.00,896,1,Pool Size Scalability
-Rendezvous_PoolSize_3,Rendezvous,224.40,0,0,Pool Size Scalability
-Rendezvous_PoolSize_5,Rendezvous,358.70,0,0,Pool Size Scalability
-Rendezvous_PoolSize_10,Rendezvous,707.60,0,0,Pool Size Scalability
-Rendezvous_PoolSize_20,Rendezvous,1346.00,0,0,Pool Size Scalability
-Rendezvous_PoolSize_50,Rendezvous,3331.00,0,0,Pool Size Scalability
-Rendezvous_PoolSize_100,Rendezvous,6805.00,0,0,Pool Size Scalability
-Rendezvous_IPHash_Memory,Rendezvous,197.60,0,0,Memory Allocation
-Memento_Memory,Memento,85.46,0,0,Memory Allocation
-Rendezvous_IPHash_Concurrent,Rendezvous,36.41,0,0,Concurrent Access
-Memento_Concurrent,Memento,89.24,0,0,Concurrent Access
-Rendezvous_IPHash_Consistency,Rendezvous,1666010.00,528271,4001,Consistency Check
-Memento_Consistency,Memento,1468769.00,528281,4001,Consistency Check
+Memento_PoolSize_3,Memento,106.40,0,0,Pool Size Scalability
+Memento_PoolSize_5,Memento,107.70,0,0,Pool Size Scalability
+Memento_PoolSize_10,Memento,108.50,0,0,Pool Size Scalability
+Memento_PoolSize_20,Memento,111.10,0,0,Pool Size Scalability
+Memento_PoolSize_50,Memento,113.80,0,0,Pool Size Scalability
+Memento_PoolSize_100,Memento,106.30,0,0,Pool Size Scalability
+Rendezvous_PoolSize_3,Rendezvous,233.50,0,0,Pool Size Scalability
+Rendezvous_PoolSize_5,Rendezvous,364.80,0,0,Pool Size Scalability
+Rendezvous_PoolSize_10,Rendezvous,711.90,0,0,Pool Size Scalability
+Rendezvous_PoolSize_20,Rendezvous,1424.00,0,0,Pool Size Scalability
+Rendezvous_PoolSize_50,Rendezvous,3430.00,0,0,Pool Size Scalability
+Rendezvous_PoolSize_100,Rendezvous,6899.00,0,0,Pool Size Scalability
+Memento_10Nodes_5Removed,Memento,106.60,0,0,Fixed Removals
+Rendezvous_10Nodes_5Unavailable,Rendezvous,388.70,0,0,Fixed Removals
+Memento_20Nodes_5Removed,Memento,105.60,0,0,Fixed Removals
+Rendezvous_20Nodes_5Unavailable,Rendezvous,1086.00,0,0,Fixed Removals
+Memento_50Nodes_5Removed,Memento,115.20,0,0,Fixed Removals
+Rendezvous_50Nodes_5Unavailable,Rendezvous,3139.00,0,0,Fixed Removals
+Memento_100Nodes_5Removed,Memento,108.90,0,0,Fixed Removals
+Rendezvous_100Nodes_5Unavailable,Rendezvous,6713.00,0,0,Fixed Removals
+Memento_100Nodes_0Removed,Memento,110.00,0,0,Progressive Removals
+Rendezvous_100Nodes_0Unavailable,Rendezvous,6994.00,0,0,Progressive Removals
+Memento_100Nodes_5Removed,Memento,109.30,0,0,Progressive Removals
+Rendezvous_100Nodes_5Unavailable,Rendezvous,6572.00,0,0,Progressive Removals
+Memento_100Nodes_10Removed,Memento,115.80,0,0,Progressive Removals
+Rendezvous_100Nodes_10Unavailable,Rendezvous,6253.00,0,0,Progressive Removals
+Memento_100Nodes_20Removed,Memento,110.20,0,0,Progressive Removals
+Rendezvous_100Nodes_20Unavailable,Rendezvous,5632.00,0,0,Progressive Removals
+Memento_100Nodes_50Removed,Memento,114.20,0,0,Progressive Removals
+Rendezvous_100Nodes_50Unavailable,Rendezvous,3763.00,0,0,Progressive Removals

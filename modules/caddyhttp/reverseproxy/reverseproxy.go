@@ -267,6 +267,8 @@ func (h *Handler) Provision(ctx caddy.Context) error {
 		// Set up event integration for MementoSelection if applicable
 		if mementoSel, ok := h.LoadBalancing.SelectionPolicy.(*MementoSelection); ok {
 			mementoSel.SetEventsApp(h.events)
+			// Populate initial topology with configured upstreams
+			mementoSel.PopulateInitialTopology(h.Upstreams)
 		}
 	}
 	if h.CBRaw != nil {
