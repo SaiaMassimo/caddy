@@ -125,7 +125,7 @@ func (be *BinomialEngine) AddBucket() int {
 }
 
 // RemoveBucket decreases the cluster size by one
-func (be *BinomialEngine) RemoveBucket(bucket int) int {
+func (be *BinomialEngine) RemoveBucket() int {
 	be.size--
 
 	if be.size <= be.minorTreeFilter {

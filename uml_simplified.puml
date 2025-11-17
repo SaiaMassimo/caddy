@@ -1,0 +1,100 @@
+@startuml
+!define SELECTOR_COLOR #E1F5FF
+!define HANDLER_COLOR #FFF4E1
+!define UPSTREAM_COLOR #E8F5E9
+
+skinparam classAttributeIconSize 0
+skinparam class {
+    BackgroundColor SELECTOR_COLOR
+}
+
+left to right direction
+
+interface Selector {
+  +Select(): Upstream
+}
+
+class Handler {
+  +LoadBalancing
+  +Upstreams[]
+}
+
+class LoadBalancing {
+  +SelectionPolicy: Selector
+}
+
+class Upstream {
+  +Available()
+}
+
+class RandomSelection
+class RoundRobinSelection
+class IPHashSelection
+class MementoSelection
+
+Handler --> LoadBalancing : has
+LoadBalancing --> Selector : uses
+Selector <|.. RandomSelection
+Selector <|.. RoundRobinSelection
+Selector <|.. IPHashSelection
+Selector <|.. MementoSelection
+Selector --> Upstream : returns
+Handler --> "0..*" Upstream : manages
+
+note right of Selector
+  Interfaccia che definisce
+  come scegliere un upstream
+  dal pool disponibile
+end note
+
+note right of MementoSelection
+  Policy avanzata per
+  hashing consistente
+end note
+@enduml
+
+@startuml
+autonumber
+actor Client
+participant Handler
+participant SelectionPolicy as "Selection Policy"
+participant Backend
+
+Client -> Handler: HTTP Request
+Handler -> Handler: Get upstreams pool
+Handler -> SelectionPolicy: Select(pool, req)
+SelectionPolicy -> SelectionPolicy: Choose best upstream
+SelectionPolicy --> Handler: Selected Upstream
+Handler -> Backend: Forward request
+Backend --> Handler: Response
+Handler --> Client: HTTP Response
+
+note over SelectionPolicy
+  Ogni richiesta chiama Select()
+  per scegliere l'upstream migliore
+  secondo la policy configurata
+end note
+@enduml
+
+@startuml
+participant Handler
+participant MementoSelection
+participant "Health Events" as Events
+
+== Setup ==
+Handler -> MementoSelection: SetEventsApp()
+Handler -> MementoSelection: PopulateInitialTopology()
+
+== Runtime ==
+Events --> MementoSelection: Upstream becomes healthy
+MementoSelection -> MementoSelection: AddNode()
+Events --> MementoSelection: Upstream becomes unhealthy
+MementoSelection -> MementoSelection: RemoveNode()
+
+note over MementoSelection
+  Memento aggiorna la topologia
+  in tempo reale quando gli upstream
+  cambiano stato di salute
+end note
+@enduml
+

@@ -37,7 +37,7 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyevents"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-    memento "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
+	memento "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
 
 func init() {
@@ -53,7 +53,7 @@ func init() {
 	caddy.RegisterModule(QueryHashSelection{})
 	caddy.RegisterModule(HeaderHashSelection{})
 	caddy.RegisterModule(CookieHashSelection{})
-    caddy.RegisterModule(MementoSelection{})
+	caddy.RegisterModule(MementoSelection{})
 }
 
 // RandomSelection is a policy that selects
@@ -892,12 +892,12 @@ type MementoSelection struct {
 	// The fallback policy to use if the field is not present. Defaults to `random`.
 	FallbackRaw json.RawMessage `json:"fallback,omitempty" caddy:"namespace=http.reverse_proxy.selection_policies inline_key=policy"`
 	fallback    Selector
-	
+
 	// Internal state for consistent hashing
-    consistentEngine *memento.ConsistentEngine
+	consistentEngine *memento.ConsistentEngine
 	topology         map[string]bool // Track which nodes are currently available
 	mu               sync.RWMutex    // Protect topology updates
-	
+
 	// Event system integration
 	events *caddyevents.App
 	ctx    caddy.Context
@@ -906,8 +906,8 @@ type MementoSelection struct {
 // CaddyModule returns the Caddy module information.
 func (MementoSelection) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-        ID:  "http.reverse_proxy.selection_policies.memento",
-        New: func() caddy.Module { return new(MementoSelection) },
+		ID:  "http.reverse_proxy.selection_policies.memento",
+		New: func() caddy.Module { return new(MementoSelection) },
 	}
 }
 
@@ -925,20 +925,21 @@ func (s *MementoSelection) Provision(ctx caddy.Context) error {
 		return fmt.Errorf("loading fallback selection policy: %s", err)
 	}
 	s.fallback = mod.(Selector)
-	
+
 	// Initialize topology tracking
 	s.topology = make(map[string]bool)
-	
-	// Initialize consistent engine with binomial engine
-	binomialEngine := memento.NewBinomialEngine(0) // Start with 0, will be populated by events
-	s.consistentEngine = memento.NewConsistentEngine(binomialEngine)
-	
+
+	// Initialize consistent engine
+	// ConsistentEngine creates MementoEngine internally, which in turn creates BinomialEngine
+	// This architecture allows for arbitrary node removals while maintaining consistency
+	s.consistentEngine = memento.NewConsistentEngine()
+
 	// Set up event system integration
 	s.ctx = ctx
-	
+
 	// Note: Event subscription will be handled by the reverse proxy handler
 	// when it provisions this selection policy, not during our Provision phase
-	
+
 	return nil
 }
 
@@ -990,17 +991,29 @@ func (s MementoSelection) Select(pool UpstreamPool, req *http.Request, w http.Re
 		// Fallback: use random selection if engine not initialized
 		return s.fallback.Select(pool, req, w)
 	}
-	
+
 	// Get bucket from consistent engine
 	bucket = s.consistentEngine.GetBucket(key)
-	
-	// Return the upstream at the selected bucket index
-	// Use modulo to ensure we stay within pool bounds
-	if bucket >= 0 && bucket < len(pool) {
-		return pool[bucket]
+
+	// Convert bucket index to node ID (string)
+	// The bucket index is an index in the MementoEngine, not in the pool
+	nodeID := s.consistentEngine.GetNodeID(bucket)
+	if nodeID == "" {
+		// Bucket index doesn't map to a valid node - this shouldn't happen
+		// but we fallback to random selection to be safe
+		return s.fallback.Select(pool, req, w)
 	}
 
-	// Fallback to random selection if something goes wrong
+	// Find the Upstream in the pool that matches this node ID
+	// We need to search by comparing the String() representation
+	for _, upstream := range pool {
+		if upstream.String() == nodeID {
+			return upstream
+		}
+	}
+
+	// Node ID not found in pool - this can happen if topology and pool are out of sync
+	// Fallback to random selection
 	return s.fallback.Select(pool, req, w)
 }
 
@@ -1059,15 +1072,18 @@ func (s *MementoSelection) PopulateInitialTopology(upstreams []*Upstream) {
 	if s.consistentEngine == nil {
 		return
 	}
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Add all configured upstreams as healthy
 	for _, upstream := range upstreams {
 		host := upstream.String()
 		if !s.topology[host] {
-			s.consistentEngine.AddNode(host)
+			if err := s.consistentEngine.AddNode(host); err != nil {
+				// Log error but continue - this shouldn't happen in normal operation
+				continue
+			}
 			s.topology[host] = true
 		}
 	}
@@ -1078,11 +1094,11 @@ func (s *MementoSelection) subscribeToHealthEvents() {
 	if s.events == nil {
 		return
 	}
-	
+
 	// Subscribe to "healthy" events
 	s.events.On("healthy", s)
-	
-	// Subscribe to "unhealthy" events  
+
+	// Subscribe to "unhealthy" events
 	s.events.On("unhealthy", s)
 }
 
@@ -1091,21 +1107,24 @@ func (s *MementoSelection) handleHealthyEvent(ctx context.Context, event caddy.E
 	if s.consistentEngine == nil {
 		return nil
 	}
-	
+
 	host, ok := event.Data["host"].(string)
 	if !ok {
 		return nil
 	}
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Add node to consistent engine if not already present
 	if !s.topology[host] {
-		s.consistentEngine.AddNode(host)
+		if err := s.consistentEngine.AddNode(host); err != nil {
+			// Log error but continue - this shouldn't happen in normal operation
+			return nil
+		}
 		s.topology[host] = true
 	}
-	
+
 	return nil
 }
 
@@ -1114,21 +1133,24 @@ func (s *MementoSelection) handleUnhealthyEvent(ctx context.Context, event caddy
 	if s.consistentEngine == nil {
 		return nil
 	}
-	
+
 	host, ok := event.Data["host"].(string)
 	if !ok {
 		return nil
 	}
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Remove node from consistent engine if present
 	if s.topology[host] {
-		s.consistentEngine.RemoveNode(host)
+		if err := s.consistentEngine.RemoveNode(host); err != nil {
+			// Log error but continue - node might have been already removed
+			return nil
+		}
 		s.topology[host] = false
 	}
-	
+
 	return nil
 }
 
@@ -1157,7 +1179,7 @@ var (
 	_ Selector = (*QueryHashSelection)(nil)
 	_ Selector = (*HeaderHashSelection)(nil)
 	_ Selector = (*CookieHashSelection)(nil)
-    _ Selector = (*MementoSelection)(nil)
+	_ Selector = (*MementoSelection)(nil)
 
 	_ caddy.Validator = (*RandomChoiceSelection)(nil)
 
@@ -1166,13 +1188,12 @@ var (
 
 	_ caddyfile.Unmarshaler = (*RandomChoiceSelection)(nil)
 	_ caddyfile.Unmarshaler = (*WeightedRoundRobinSelection)(nil)
-    _ caddyfile.Unmarshaler = (*MementoSelection)(nil)
-	
-    _ caddyevents.Handler = (*MementoSelection)(nil)
+	_ caddyfile.Unmarshaler = (*MementoSelection)(nil)
 
-    // Back-compat alias
+	_ caddyevents.Handler = (*MementoSelection)(nil)
+
+	// Back-compat alias
 )
 
 // Backward compatibility: keep old name as alias
-var (
-)
+var ()

@@ -16,142 +16,151 @@ package memento
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 )
 
-// ConsistentEngine wraps any hashing engine with Memento to provide
-// consistent hashing that is stable against random node removals.
+// ConsistentEngine wraps MementoEngine to provide a load balancing policy
+// that can handle arbitrary node removals and additions.
+// It manages node topology (node IDs as strings) and delegates
+// all hashing logic to MementoEngine.
 type ConsistentEngine struct {
-	// The underlying hashing engine (e.g., BinomialEngine)
-	engine HashingEngine
-	
-	// Memento for tracking removed nodes and their replacements
-	memento *Memento
-	
-	// Current topology state
-	topology []string
-	lastRemoved int
-	
+	// MementoEngine handles all hashing logic and arbitrary node removal
+	engine *MementoEngine
+
+	// Indirection: one-to-one mapping between node ID (string) and bucket (int)
+	// This ensures consistency checks and proper mapping management
+	indirection *Indirection
+
 	// Thread safety
 	mu sync.RWMutex
 }
 
-// HashingEngine defines the interface for any hashing engine
-type HashingEngine interface {
-	GetBucket(key string) int
-	Size() int
-	AddBucket() int
-	RemoveBucket(bucket int) int
-}
-
-// NewConsistentEngine creates a new consistent engine wrapping the given engine
-func NewConsistentEngine(engine HashingEngine) *ConsistentEngine {
+// NewConsistentEngine creates a new consistent engine with MementoEngine
+func NewConsistentEngine() *ConsistentEngine {
 	return &ConsistentEngine{
-		engine:        engine,
-		memento:       NewMemento(),
-		topology:      make([]string, 0, engine.Size()),
-		lastRemoved:   -1,
+		engine:      NewMementoEngine(0),
+		indirection: NewIndirection(0),
 	}
 }
 
-// GetBucket returns the bucket for a key, using memento to handle removed nodes
+// GetBucket returns the bucket for a key.
+// It ensures the returned bucket exists in the indirection.
+// If the bucket returned by MementoEngine doesn't exist in the indirection,
+// it follows the replacement chain until finding a valid bucket.
 func (ce *ConsistentEngine) GetBucket(key string) int {
 	ce.mu.RLock()
 	defer ce.mu.RUnlock()
-	
-	// Get the bucket from the underlying engine
+
 	bucket := ce.engine.GetBucket(key)
-	
-	// Check if this bucket was removed and has a replacer
-	replacer := ce.memento.Replacer(bucket)
-	if replacer != -1 {
-		return replacer
+
+	// Verify that the bucket exists in the indirection
+	if ce.indirection.HasBucket(bucket) {
+		return bucket
 	}
-	
-	return bucket
+
+	// The bucket doesn't exist in indirection - this can happen when
+	// multiple removals cause remapping chains where the final bucket
+	// was also removed from the topology.
+	//
+	// According to the Java implementation, when indirection.get(bucket)
+	// fails (bucket doesn't exist), it throws an exception. But in our
+	// case, we need to handle this gracefully.
+	//
+	// Since MementoEngine.GetBucket already handles remapping correctly,
+	// if we get a bucket that doesn't exist in indirection, it means
+	// there's a synchronization issue. We should not reach this point
+	// in normal operation, but we handle it by finding a valid bucket
+	// deterministically based on the key to maintain consistency.
+	validBuckets := ce.indirection.GetAllBuckets()
+	if len(validBuckets) == 0 {
+		// No buckets in indirection - return the original bucket
+		// This will cause GetNodeID to return an error, triggering fallback
+		return bucket
+	}
+
+	// Sort buckets to ensure deterministic ordering
+	// This is critical for consistency: same key -> same bucket
+	sort.Ints(validBuckets)
+
+	// Use a deterministic hash of the key to select a valid bucket
+	// This ensures consistency: same key -> same bucket (from valid buckets)
+	hash := hashString(key)
+	selectedIndex := int(hash % uint64(len(validBuckets)))
+	return validBuckets[selectedIndex]
+}
+
+// hashString computes a simple hash of a string
+// This is used for deterministic bucket selection when the original bucket
+// doesn't exist in the indirection
+func hashString(s string) uint64 {
+	var hash uint64 = 5381
+	for i := 0; i < len(s); i++ {
+		hash = ((hash << 5) + hash) + uint64(s[i])
+	}
+	return hash
 }
 
 // AddNode adds a new node to the topology
-func (ce *ConsistentEngine) AddNode(nodeID string) {
+func (ce *ConsistentEngine) AddNode(nodeID string) error {
 	ce.mu.Lock()
 	defer ce.mu.Unlock()
-	
-	// Add to underlying engine
-	ce.engine.AddBucket()
-	
-	// Add to topology
-	ce.topology = append(ce.topology, nodeID)
+
+	// Check if node already exists
+	if ce.indirection.HasNode(nodeID) {
+		return nil // Node already present
+	}
+
+	// Add to MementoEngine first
+	bucket := ce.engine.AddBucket()
+
+	// Map node ID to bucket index using indirection
+	// If mapping fails, we need to rollback the bucket addition
+	if err := ce.indirection.Put(nodeID, bucket); err != nil {
+		// Rollback: remove the bucket from engine
+		ce.engine.RemoveBucket(bucket)
+		return fmt.Errorf("failed to add node %s: %w", nodeID, err)
+	}
+
+	return nil
 }
 
 // RemoveNode removes a node from the topology
-func (ce *ConsistentEngine) RemoveNode(nodeID string) {
+func (ce *ConsistentEngine) RemoveNode(nodeID string) error {
 	ce.mu.Lock()
 	defer ce.mu.Unlock()
-	
-	// Find the node in topology
-	nodeIndex := -1
-	for i, node := range ce.topology {
-		if node == nodeID {
-			nodeIndex = i
-			break
-		}
+
+	// Get the bucket for this node from indirection
+	bucket, err := ce.indirection.GetBucket(nodeID)
+	if err != nil {
+		return err // Node not found
 	}
-	
-	if nodeIndex == -1 {
-		return // Node not found
+
+	// Remove from indirection first (following Java implementation order)
+	// In Java: indirection.remove(node) returns the bucket, then engine.removeBucket(bucket)
+	if _, err := ce.indirection.RemoveNode(nodeID); err != nil {
+		return fmt.Errorf("failed to remove node %s from indirection: %w", nodeID, err)
 	}
-	
-	// Remove from underlying engine
-	newSize := ce.engine.RemoveBucket(nodeIndex)
-	
-	// Remember the removal in memento
-	// The replacer is the new size (which represents the last bucket)
-	ce.lastRemoved = ce.memento.Remember(nodeIndex, newSize, ce.lastRemoved)
-	
-	// Remove from topology
-	ce.topology = append(ce.topology[:nodeIndex], ce.topology[nodeIndex+1:]...)
+
+	// Remove from MementoEngine
+	ce.engine.RemoveBucket(bucket)
+
+	return nil
 }
 
 // RestoreNode restores a previously removed node
 func (ce *ConsistentEngine) RestoreNode(nodeID string) {
-	ce.mu.Lock()
-	defer ce.mu.Unlock()
-	
-	// Find the node in topology to determine its index
-	nodeIndex := -1
-	for i, node := range ce.topology {
-		if node == nodeID {
-			nodeIndex = i
-			break
-		}
-	}
-	
-	if nodeIndex == -1 {
-		// Node not found in current topology, add it at the end
-		ce.engine.AddBucket()
-		ce.topology = append(ce.topology, nodeID)
-		return
-	}
-	
-	// Restore from memento
-	ce.lastRemoved = ce.memento.Restore(nodeIndex)
-	
-	// Add back to underlying engine
-	ce.engine.AddBucket()
-	
-	// Add back to topology (insert at original position)
-	ce.topology = append(ce.topology[:nodeIndex], 
-		append([]string{nodeID}, ce.topology[nodeIndex:]...)...)
+	// AddNode already handles restoring previously removed nodes
+	// because MementoEngine tracks the last removed bucket
+	ce.AddNode(nodeID)
 }
 
-// GetTopology returns the current topology
+// GetTopology returns the current topology (list of node IDs)
 func (ce *ConsistentEngine) GetTopology() []string {
 	ce.mu.RLock()
 	defer ce.mu.RUnlock()
-	
-	result := make([]string, len(ce.topology))
-	copy(result, ce.topology)
-	return result
+
+	return ce.indirection.GetAllNodeIDs()
 }
 
 // Size returns the current size of the working set
@@ -161,17 +170,18 @@ func (ce *ConsistentEngine) Size() int {
 	return ce.engine.Size()
 }
 
-// GetMementoStats returns statistics about the memento
+// GetMementoStats returns statistics about the engine
 func (ce *ConsistentEngine) GetMementoStats() map[string]interface{} {
 	ce.mu.RLock()
 	defer ce.mu.RUnlock()
-	
+
 	return map[string]interface{}{
-		"memento_size":     ce.memento.Size(),
-		"memento_capacity": ce.memento.capacity(),
-		"memento_empty":    ce.memento.IsEmpty(),
-		"topology_size":    len(ce.topology),
-		"last_removed":     ce.lastRemoved,
+		"engine_size":   ce.engine.Size(),
+		"binomial_size": ce.engine.binomialArraySize(),
+		"memento_size":  ce.engine.memento.Size(),
+		"memento_empty": ce.engine.memento.IsEmpty(),
+		"last_removed":  ce.engine.lastRemoved,
+		"topology_size": ce.indirection.Size(),
 	}
 }
 
@@ -179,7 +189,19 @@ func (ce *ConsistentEngine) GetMementoStats() map[string]interface{} {
 func (ce *ConsistentEngine) String() string {
 	ce.mu.RLock()
 	defer ce.mu.RUnlock()
-	
-	return fmt.Sprintf("ConsistentEngine{engine_size=%d, topology_size=%d, memento=%s}", 
-		ce.engine.Size(), len(ce.topology), ce.memento.String())
+
+	return fmt.Sprintf("ConsistentEngine{engine=%s, topology_size=%d}",
+		ce.engine.String(), ce.indirection.Size())
+}
+
+// GetNodeID returns the node ID for a given bucket index
+func (ce *ConsistentEngine) GetNodeID(bucket int) string {
+	ce.mu.RLock()
+	defer ce.mu.RUnlock()
+
+	nodeID, err := ce.indirection.GetNodeID(bucket)
+	if err != nil {
+		return "" // Return empty string if bucket doesn't exist
+	}
+	return nodeID
 }
