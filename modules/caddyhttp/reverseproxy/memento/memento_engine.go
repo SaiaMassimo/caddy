@@ -19,13 +19,25 @@ import (
 	"hash/fnv"
 )
 
+// MementoInterface defines the interface for both Memento implementations
+type MementoInterface interface {
+	Remember(bucket, replacer, prevRemoved int) int
+	Replacer(bucket int) int
+	Restore(bucket int) int
+	IsEmpty() bool
+	Size() int
+	Capacity() int
+	String() string
+}
+
 // MementoEngine combines Memento with BinomialEngine to provide
 // consistent hashing that supports arbitrary node removals.
 //
 // Author: Massimo Coluzzi
 type MementoEngine struct {
 	// The memory of the removed nodes (replacement set)
-	memento *Memento
+	// Can be either *Memento (RWMutex version) or *MementoLockFree (lock-free version)
+	memento MementoInterface
 
 	// The underlying binomial engine
 	binomialEngine *BinomialEngine
@@ -35,10 +47,23 @@ type MementoEngine struct {
 }
 
 // NewMementoEngine creates a new MementoEngine with the given initial size
+// Uses the RWMutex version (Memento) by default
 func NewMementoEngine(size int) *MementoEngine {
+	return NewMementoEngineWithType(size, false)
+}
+
+// NewMementoEngineWithType creates a new MementoEngine with the given initial size
+// and allows choosing between RWMutex version (lockFree=false) or lock-free version (lockFree=true)
+func NewMementoEngineWithType(size int, lockFree bool) *MementoEngine {
 	engine := NewBinomialEngine(size)
+	var memento MementoInterface
+	if lockFree {
+		memento = NewMementoLockFree()
+	} else {
+		memento = NewMemento()
+	}
 	return &MementoEngine{
-		memento:        NewMemento(),
+		memento:        memento,
 		binomialEngine: engine,
 		lastRemoved:    size,
 	}

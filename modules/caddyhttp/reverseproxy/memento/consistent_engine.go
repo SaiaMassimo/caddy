@@ -17,7 +17,6 @@ package memento
 import (
 	"fmt"
 	"sort"
-	"sync"
 )
 
 // ConsistentEngine wraps MementoEngine to provide a load balancing policy
@@ -32,8 +31,9 @@ type ConsistentEngine struct {
 	// This ensures consistency checks and proper mapping management
 	indirection *Indirection
 
-	// Thread safety
-	mu sync.RWMutex
+	// NOTE: Thread safety is handled at the MementoSelection level.
+	// This engine is not thread-safe by itself and must be protected
+	// by the caller's lock (typically MementoSelection.mu).
 }
 
 // NewConsistentEngine creates a new consistent engine with MementoEngine
@@ -48,10 +48,10 @@ func NewConsistentEngine() *ConsistentEngine {
 // It ensures the returned bucket exists in the indirection.
 // If the bucket returned by MementoEngine doesn't exist in the indirection,
 // it follows the replacement chain until finding a valid bucket.
+//
+// NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
+// (typically MementoSelection.mu with RLock() for reads or Lock() for writes).
 func (ce *ConsistentEngine) GetBucket(key string) int {
-	ce.mu.RLock()
-	defer ce.mu.RUnlock()
-
 	bucket := ce.engine.GetBucket(key)
 
 	// Verify that the bucket exists in the indirection
@@ -101,11 +101,11 @@ func hashString(s string) uint64 {
 	return hash
 }
 
-// AddNode adds a new node to the topology
+// AddNode adds a new node to the topology.
+//
+// NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
+// (typically MementoSelection.mu with Lock() for writes).
 func (ce *ConsistentEngine) AddNode(nodeID string) error {
-	ce.mu.Lock()
-	defer ce.mu.Unlock()
-
 	// Check if node already exists
 	if ce.indirection.HasNode(nodeID) {
 		return nil // Node already present
@@ -125,11 +125,11 @@ func (ce *ConsistentEngine) AddNode(nodeID string) error {
 	return nil
 }
 
-// RemoveNode removes a node from the topology
+// RemoveNode removes a node from the topology.
+//
+// NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
+// (typically MementoSelection.mu with Lock() for writes).
 func (ce *ConsistentEngine) RemoveNode(nodeID string) error {
-	ce.mu.Lock()
-	defer ce.mu.Unlock()
-
 	// Get the bucket for this node from indirection
 	bucket, err := ce.indirection.GetBucket(nodeID)
 	if err != nil {
@@ -155,26 +155,27 @@ func (ce *ConsistentEngine) RestoreNode(nodeID string) {
 	ce.AddNode(nodeID)
 }
 
-// GetTopology returns the current topology (list of node IDs)
+// GetTopology returns the current topology (list of node IDs).
+//
+// NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
+// (typically MementoSelection.mu with RLock() for reads).
 func (ce *ConsistentEngine) GetTopology() []string {
-	ce.mu.RLock()
-	defer ce.mu.RUnlock()
-
 	return ce.indirection.GetAllNodeIDs()
 }
 
-// Size returns the current size of the working set
+// Size returns the current size of the working set.
+//
+// NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
+// (typically MementoSelection.mu with RLock() for reads).
 func (ce *ConsistentEngine) Size() int {
-	ce.mu.RLock()
-	defer ce.mu.RUnlock()
 	return ce.engine.Size()
 }
 
-// GetMementoStats returns statistics about the engine
+// GetMementoStats returns statistics about the engine.
+//
+// NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
+// (typically MementoSelection.mu with RLock() for reads).
 func (ce *ConsistentEngine) GetMementoStats() map[string]interface{} {
-	ce.mu.RLock()
-	defer ce.mu.RUnlock()
-
 	return map[string]interface{}{
 		"engine_size":   ce.engine.Size(),
 		"binomial_size": ce.engine.binomialArraySize(),
@@ -185,20 +186,20 @@ func (ce *ConsistentEngine) GetMementoStats() map[string]interface{} {
 	}
 }
 
-// String returns a string representation of the consistent engine
+// String returns a string representation of the consistent engine.
+//
+// NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
+// (typically MementoSelection.mu with RLock() for reads).
 func (ce *ConsistentEngine) String() string {
-	ce.mu.RLock()
-	defer ce.mu.RUnlock()
-
 	return fmt.Sprintf("ConsistentEngine{engine=%s, topology_size=%d}",
 		ce.engine.String(), ce.indirection.Size())
 }
 
-// GetNodeID returns the node ID for a given bucket index
+// GetNodeID returns the node ID for a given bucket index.
+//
+// NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
+// (typically MementoSelection.mu with RLock() for reads).
 func (ce *ConsistentEngine) GetNodeID(bucket int) string {
-	ce.mu.RLock()
-	defer ce.mu.RUnlock()
-
 	nodeID, err := ce.indirection.GetNodeID(bucket)
 	if err != nil {
 		return "" // Return empty string if bucket doesn't exist

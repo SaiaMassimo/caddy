@@ -23,12 +23,12 @@ import (
 
 func TestMemento(t *testing.T) {
 	memento := NewMemento()
-	
+
 	// Test initial state
 	if !memento.IsEmpty() {
 		t.Error("Memento should be empty initially")
 	}
-	
+
 	if memento.Size() != 0 {
 		t.Errorf("Expected size 0, got %d", memento.Size())
 	}
@@ -36,17 +36,17 @@ func TestMemento(t *testing.T) {
 
 func TestMementoRemember(t *testing.T) {
 	memento := NewMemento()
-	
+
 	// Remember a removal
 	lastRemoved := memento.Remember(5, 3, -1)
 	if lastRemoved != 5 {
 		t.Errorf("Expected lastRemoved 5, got %d", lastRemoved)
 	}
-	
+
 	if memento.IsEmpty() {
 		t.Error("Memento should not be empty after remembering")
 	}
-	
+
 	if memento.Size() != 1 {
 		t.Errorf("Expected size 1, got %d", memento.Size())
 	}
@@ -54,16 +54,16 @@ func TestMementoRemember(t *testing.T) {
 
 func TestMementoReplacer(t *testing.T) {
 	memento := NewMemento()
-	
+
 	// Remember a removal
 	memento.Remember(5, 3, -1)
-	
+
 	// Test replacer
 	replacer := memento.Replacer(5)
 	if replacer != 3 {
 		t.Errorf("Expected replacer 3, got %d", replacer)
 	}
-	
+
 	// Test non-existent bucket
 	replacer = memento.Replacer(10)
 	if replacer != -1 {
@@ -73,20 +73,20 @@ func TestMementoReplacer(t *testing.T) {
 
 func TestMementoRestore(t *testing.T) {
 	memento := NewMemento()
-	
+
 	// Remember a removal
 	memento.Remember(5, 3, -1)
-	
+
 	// Restore the bucket
 	prevRemoved := memento.Restore(5)
 	if prevRemoved != -1 {
 		t.Errorf("Expected prevRemoved -1, got %d", prevRemoved)
 	}
-	
+
 	if !memento.IsEmpty() {
 		t.Error("Memento should be empty after restore")
 	}
-	
+
 	if memento.Size() != 0 {
 		t.Errorf("Expected size 0, got %d", memento.Size())
 	}
@@ -94,27 +94,27 @@ func TestMementoRestore(t *testing.T) {
 
 func TestMementoSequence(t *testing.T) {
 	memento := NewMemento()
-	
+
 	// Remember multiple removals in sequence
 	lastRemoved := memento.Remember(5, 3, -1)
 	if lastRemoved != 5 {
 		t.Errorf("Expected lastRemoved 5, got %d", lastRemoved)
 	}
-	
+
 	lastRemoved = memento.Remember(7, 2, 5)
 	if lastRemoved != 7 {
 		t.Errorf("Expected lastRemoved 7, got %d", lastRemoved)
 	}
-	
+
 	lastRemoved = memento.Remember(2, 1, 7)
 	if lastRemoved != 2 {
 		t.Errorf("Expected lastRemoved 2, got %d", lastRemoved)
 	}
-	
+
 	if memento.Size() != 3 {
 		t.Errorf("Expected size 3, got %d", memento.Size())
 	}
-	
+
 	// Test replacers
 	if memento.Replacer(5) != 3 {
 		t.Error("Expected replacer 3 for bucket 5")
@@ -125,23 +125,23 @@ func TestMementoSequence(t *testing.T) {
 	if memento.Replacer(2) != 1 {
 		t.Error("Expected replacer 1 for bucket 2")
 	}
-	
+
 	// Restore in reverse order
 	prevRemoved := memento.Restore(2)
 	if prevRemoved != 7 {
 		t.Errorf("Expected prevRemoved 7, got %d", prevRemoved)
 	}
-	
+
 	prevRemoved = memento.Restore(7)
 	if prevRemoved != 5 {
 		t.Errorf("Expected prevRemoved 5, got %d", prevRemoved)
 	}
-	
+
 	prevRemoved = memento.Restore(5)
 	if prevRemoved != -1 {
 		t.Errorf("Expected prevRemoved -1, got %d", prevRemoved)
 	}
-	
+
 	if !memento.IsEmpty() {
 		t.Error("Memento should be empty after all restores")
 	}
@@ -149,10 +149,10 @@ func TestMementoSequence(t *testing.T) {
 
 func TestMementoConcurrent(t *testing.T) {
 	memento := NewMemento()
-	
+
 	// Test concurrent access
 	done := make(chan bool, 2)
-	
+
 	// Goroutine 1: Add removals
 	go func() {
 		for i := 0; i < 100; i++ {
@@ -160,7 +160,7 @@ func TestMementoConcurrent(t *testing.T) {
 		}
 		done <- true
 	}()
-	
+
 	// Goroutine 2: Check replacers
 	go func() {
 		for i := 0; i < 100; i++ {
@@ -171,7 +171,7 @@ func TestMementoConcurrent(t *testing.T) {
 		}
 		done <- true
 	}()
-	
+
 	// Wait for both goroutines
 	<-done
 	<-done
@@ -180,28 +180,28 @@ func TestMementoConcurrent(t *testing.T) {
 func TestConsistentEngine(t *testing.T) {
 	// Create a consistent engine
 	consistentEngine := NewConsistentEngine()
-	
+
 	// Test initial state (empty)
 	if consistentEngine.Size() != 0 {
 		t.Errorf("Expected size 0, got %d", consistentEngine.Size())
 	}
-	
+
 	// Add 5 nodes
 	for i := 0; i < 5; i++ {
 		consistentEngine.AddNode(fmt.Sprintf("node%d", i))
 	}
-	
+
 	// Test size after adding nodes
 	if consistentEngine.Size() != 5 {
 		t.Errorf("Expected size 5, got %d", consistentEngine.Size())
 	}
-	
+
 	// Test GetBucket
 	bucket := consistentEngine.GetBucket("test-key")
 	if bucket < 0 || bucket >= 5 {
 		t.Errorf("Bucket %d out of range [0, 5)", bucket)
 	}
-	
+
 	// Test topology (should have 5 nodes)
 	topology := consistentEngine.GetTopology()
 	if len(topology) != 5 {
@@ -211,27 +211,27 @@ func TestConsistentEngine(t *testing.T) {
 
 func TestConsistentEngineNodeOperations(t *testing.T) {
 	consistentEngine := NewConsistentEngine()
-	
+
 	// Add nodes
 	consistentEngine.AddNode("node1")
 	consistentEngine.AddNode("node2")
 	consistentEngine.AddNode("node3")
-	
+
 	// Check topology
 	topology := consistentEngine.GetTopology()
 	if len(topology) != 3 {
 		t.Errorf("Expected topology size 3, got %d", len(topology))
 	}
-	
+
 	// Remove a node
 	consistentEngine.RemoveNode("node2")
-	
+
 	// Check topology after removal
 	topology = consistentEngine.GetTopology()
 	if len(topology) != 2 {
 		t.Errorf("Expected topology size 2, got %d", len(topology))
 	}
-	
+
 	// Check that node2 is not in topology
 	found := false
 	for _, node := range topology {
@@ -243,10 +243,10 @@ func TestConsistentEngineNodeOperations(t *testing.T) {
 	if found {
 		t.Error("node2 should not be in topology after removal")
 	}
-	
+
 	// Restore the node
 	consistentEngine.RestoreNode("node2")
-	
+
 	// Check topology after restore
 	topology = consistentEngine.GetTopology()
 	if len(topology) != 3 {
@@ -256,28 +256,28 @@ func TestConsistentEngineNodeOperations(t *testing.T) {
 
 func TestConsistentEngineConsistency(t *testing.T) {
 	consistentEngine := NewConsistentEngine()
-	
+
 	// Add nodes
 	for i := 0; i < 5; i++ {
 		consistentEngine.AddNode(fmt.Sprintf("node%d", i))
 	}
-	
+
 	// Test consistency - same key should map to same bucket
 	key := "consistent-test-key"
 	bucket1 := consistentEngine.GetBucket(key)
 	bucket2 := consistentEngine.GetBucket(key)
-	
+
 	if bucket1 != bucket2 {
 		t.Errorf("Inconsistent mapping: %d vs %d", bucket1, bucket2)
 	}
-	
+
 	// Remove a node and test that most keys still map to same bucket
 	consistentEngine.RemoveNode("node2")
-	
+
 	bucket3 := consistentEngine.GetBucket(key)
 	// The bucket might change due to removal, but it should be consistent
 	bucket4 := consistentEngine.GetBucket(key)
-	
+
 	if bucket3 != bucket4 {
 		t.Errorf("Inconsistent mapping after removal: %d vs %d", bucket3, bucket4)
 	}
@@ -285,7 +285,7 @@ func TestConsistentEngineConsistency(t *testing.T) {
 
 func BenchmarkMementoRemember(b *testing.B) {
 	memento := NewMemento()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		memento.Remember(i%1000, (i-1)%1000, -1)
@@ -294,12 +294,12 @@ func BenchmarkMementoRemember(b *testing.B) {
 
 func BenchmarkMementoReplacer(b *testing.B) {
 	memento := NewMemento()
-	
+
 	// Pre-populate
 	for i := 0; i < 1000; i++ {
 		memento.Remember(i, i-1, -1)
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		memento.Replacer(i % 1000)
@@ -308,12 +308,12 @@ func BenchmarkMementoReplacer(b *testing.B) {
 
 func BenchmarkConsistentEngineGetBucket(b *testing.B) {
 	consistentEngine := NewConsistentEngine()
-	
+
 	// Add nodes
 	for i := 0; i < 100; i++ {
 		consistentEngine.AddNode(fmt.Sprintf("node%d", i))
 	}
-	
+
 	key := "benchmark-key"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -338,7 +338,7 @@ func TestMementoDirectLoadBalancing(t *testing.T) {
 	// Prima distribuzione: mappa le chiavi PRIMA della rimozione
 	distributionBefore := make([]int, numNodes)
 	keyToBucket := make(map[string]int, numKeys)
-	
+
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("memento-direct-key-%d", i)
 		bucket := engine.GetBucket(key)
@@ -359,14 +359,14 @@ func TestMementoDirectLoadBalancing(t *testing.T) {
 	rand.Seed(42) // Seed fisso per riproducibilità
 	randomNodeIndex := rand.Intn(numNodes)
 	t.Logf("  Removing random node: index %d", randomNodeIndex)
-	
+
 	// Verifica quante chiavi erano sul nodo che stiamo per rimuovere
 	keysOnRemovedNode := distributionBefore[randomNodeIndex]
 	t.Logf("  Keys on removed node: %d", keysOnRemovedNode)
-	
+
 	// Rimu 것입니다 il bucket dall'engine
 	newSize := engine.RemoveBucket()
-	
+
 	// Ricorda la rimozione nel Memento manualmente
 	// Il replacer è il nuovo size (l'ultimo bucket valido)
 	lastRemoved := memento.Remember(randomNodeIndex, newSize, -1)
@@ -396,25 +396,25 @@ func TestMementoDirectLoadBalancing(t *testing.T) {
 	// Seconda distribuzione: mappa le chiavi DOPO la rimozione
 	distributionAfter := make([]int, numNodes)
 	keysMoved := 0
-	
+
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("memento-direct-key-%d", i)
 		bucketAfter := getBucketWithMemento(key)
 		bucketBefore := keyToBucket[key]
-		
+
 		// La chiave dopo la rimozione NON dovrebbe mai puntare al nodo rimosso
 		if bucketAfter == randomNodeIndex {
 			t.Errorf("Key %s was still mapped to removed bucket %d", key, bucketAfter)
 		}
-		
+
 		// Verifica che il bucket sia valido
 		if bucketAfter < 0 || bucketAfter >= numNodes {
 			t.Errorf("Invalid bucket %d for key %s after removal", bucketAfter, key)
 			continue
 		}
-		
+
 		distributionAfter[bucketAfter]++
-		
+
 		// Conta le chiavi che sono state spostate
 		if bucketBefore != bucketAfter {
 			keysMoved++
@@ -475,34 +475,34 @@ func TestMementoDirectLoadBalancing(t *testing.T) {
 	// Verifiche di bilanciamento dopo la rimozione
 	minNodesPercent := float64(numNodes-1) * 0.95
 	expectedMinNodesWithKeys := int(minNodesPercent + 0.5)
-	
+
 	if nonZeroNodesAfter < expectedMinNodesWithKeys {
-		t.Errorf("Expected at least %d nodes with keys after removal, got %d", 
+		t.Errorf("Expected at least %d nodes with keys after removal, got %d",
 			expectedMinNodesWithKeys, nonZeroNodesAfter)
 	}
 
 	if coefficientOfVariationAfter > 0.6 {
-		t.Errorf("Coefficient of variation too high after removal: %.4f (expected < 0.6)", 
+		t.Errorf("Coefficient of variation too high after removal: %.4f (expected < 0.6)",
 			coefficientOfVariationAfter)
 	}
 
 	maxExpectedKeys := int(meanAfter * 3.5)
 	if maxKeysAfter > maxExpectedKeys {
-		t.Errorf("Max keys per node (%d) exceeds 3.5x average (%.1f)", 
+		t.Errorf("Max keys per node (%d) exceeds 3.5x average (%.1f)",
 			maxKeysAfter, meanAfter*3.5)
 	}
 
 	// Verifica che il numero di chiavi corrisponda
 	if totalKeysAfter != numKeys {
-		t.Errorf("Total keys mismatch after removal: expected %d, got %d", 
+		t.Errorf("Total keys mismatch after removal: expected %d, got %d",
 			numKeys, totalKeysAfter)
 	}
 
 	// Verifica che tutte le chiavi del nodo rimosso siano state spostate
 	if keysMoved < keysOnRemovedNode {
-		t.Errorf("Expected at least %d keys moved, got %d", 
+		t.Errorf("Expected at least %d keys moved, got %d",
 			keysOnRemovedNode, keysMoved)
-		}
+	}
 }
 
 // setupMementoTest crea un setup comune per i test di Memento
@@ -513,14 +513,14 @@ func setupMementoTest() (*BinomialEngine, *Memento, map[string]int) {
 	engine := NewBinomialEngine(numNodes)
 	memento := NewMemento()
 	keyToBucketBefore := make(map[string]int, numKeys)
-	
+
 	// Mappa tutte le chiavi prima della rimozione
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("key-%d", i)
 		bucket := engine.GetBucket(key)
 		keyToBucketBefore[key] = bucket
 	}
-	
+
 	return engine, memento, keyToBucketBefore
 }
 
@@ -531,14 +531,14 @@ func setupMementoEngineTest() (*MementoEngine, map[string]int) {
 
 	engine := NewMementoEngine(numNodes)
 	keyToBucketBefore := make(map[string]int, numKeys)
-	
+
 	// Mappa tutte le chiavi prima della rimozione
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("key-%d", i)
 		bucket := engine.GetBucket(key)
 		keyToBucketBefore[key] = bucket
 	}
-	
+
 	return engine, keyToBucketBefore
 }
 
@@ -570,7 +570,7 @@ func TestMementoLoadBalancingOnly(t *testing.T) {
 	rand.Seed(42)
 	removedNodeIndex := rand.Intn(numNodes)
 	keysOnRemovedNode := distributionBefore[removedNodeIndex]
-	
+
 	newSize := engine.RemoveBucket()
 	memento.Remember(removedNodeIndex, newSize, -1)
 
@@ -581,11 +581,11 @@ func TestMementoLoadBalancingOnly(t *testing.T) {
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("key-%d", i)
 		bucket := getBucketWithMemento(engine, memento, key)
-		
+
 		if bucket == removedNodeIndex {
 			t.Errorf("Key %s mapped to removed bucket %d", key, bucket)
 		}
-		
+
 		distributionAfter[bucket]++
 	}
 
@@ -636,17 +636,17 @@ func TestMementoLoadBalancingOnly(t *testing.T) {
 	minNodesPercentage := 0.95 * float64(numNodes-1)
 	minNodesWithKeys := int(minNodesPercentage + 0.5)
 	if nonZeroNodes < minNodesWithKeys {
-		t.Errorf("Too few nodes with keys: got %d, expected at least %d", 
+		t.Errorf("Too few nodes with keys: got %d, expected at least %d",
 			nonZeroNodes, minNodesWithKeys)
 	}
 
 	if coefficientOfVariation > 0.5 {
-		t.Errorf("Poor load balancing: CV=%.4f, expected < 0.5", 
+		t.Errorf("Poor load balancing: CV=%.4f, expected < 0.5",
 			coefficientOfVariation)
 	}
 
 	if maxKeys > int(mean*3.5) {
-		t.Errorf("Max keys too high: got %d, expected < %d (3.5x mean)", 
+		t.Errorf("Max keys too high: got %d, expected < %d (3.5x mean)",
 			maxKeys, int(mean*3.5))
 	}
 }
@@ -669,7 +669,7 @@ func TestMementoMinimalDistribution(t *testing.T) {
 	rand.Seed(42)
 	removedNodeIndex := rand.Intn(numNodes)
 	keysOnRemovedNode := distributionBefore[removedNodeIndex]
-	
+
 	newSize := engine.RemoveBucket()
 	memento.Remember(removedNodeIndex, newSize, -1)
 
@@ -681,7 +681,7 @@ func TestMementoMinimalDistribution(t *testing.T) {
 		key := fmt.Sprintf("key-%d", i)
 		bucketAfter := getBucketWithMemento(engine, memento, key)
 		bucketBefore := keyToBucketBefore[key]
-		
+
 		if bucketBefore != bucketAfter {
 			keysMoved++
 		}
@@ -699,14 +699,14 @@ func TestMementoMinimalDistribution(t *testing.T) {
 	maxAcceptableMovement := float64(keysOnRemovedNode) * 2.2
 
 	if float64(keysMoved) > maxAcceptableMovement {
-		t.Errorf("Too many keys moved: got %d, expected at most %d", 
+		t.Errorf("Too many keys moved: got %d, expected at most %d",
 			keysMoved, int(maxAcceptableMovement))
 	}
 
 	// La percentมัก di movimento non dovrebbe superare l'8%
 	maxMovementPercentage := 8.0
 	if movementPercentage > maxMovementPercentage {
-		t.Errorf("Movement percentage too high: %.2f%%, expected < %.1f%%", 
+		t.Errorf("Movement percentage too high: %.2f%%, expected < %.1f%%",
 			movementPercentage, maxMovementPercentage)
 	}
 }
@@ -721,31 +721,31 @@ func TestMementoMonotonicity(t *testing.T) {
 		// Setup iniziale: S = 50 nodi
 		engine := NewBinomialEngine(initialNodes)
 		memento := NewMemento()
-		
+
 		// Genera 100k chiavi e calcola mappa_old[k]
 		keyToBucketOld := make(map[string]int, numKeys)
 		for i := 0; i < numKeys; i++ {
 			key := fmt.Sprintf("key-%d", i)
 			keyToBucketOld[key] = engine.GetBucket(key)
 		}
-		
+
 		// Rimuovi un nodo casuale x
 		rand.Seed(42)
 		removedNodeIndex := rand.Intn(initialNodes)
 		t.Logf("Removing node: %d", removedNodeIndex)
-		
+
 		// Calcola mappa_new su S' = S \ {x}
 		newSize := engine.RemoveBucket()
 		memento.Remember(removedNodeIndex, newSize, -1)
-		
+
 		// Verifica monotonicità su rimozione
 		// ASSERZIONE FORTE: per ogni k con mappa_old[k] ≠ x deve valere mappa_new[k] = mappa_old[k]
 		monotonicityViolations := 0
 		keysOnRemovedNode := 0
-		
+
 		for key, bucketOld := range keyToBucketOld {
 			bucketNew := getBucketWithMemento(engine, memento, key)
-			
+
 			// Se era sul nodo rimosso, viene reindirizzata (OK)
 			if bucketOld == removedNodeIndex {
 				keysOnRemovedNode++
@@ -760,45 +760,45 @@ func TestMementoMonotonicity(t *testing.T) {
 				}
 			}
 		}
-		
+
 		violationRate := float64(monotonicityViolations) / float64(numKeys) * 100
 		t.Logf("Monotonicity on removal stats:")
 		t.Logf("  Keys on removed node: %d", keysOnRemovedNode)
 		t.Logf("  Violations: %d/%d (%.4f%%)", monotonicityViolations, numKeys, violationRate)
-		
+
 		// ASSERZIONE FORTE: violazioni dovrebbero essere 0 o molto vicine a 0
 		if violationRate > 2.5 {
-			t.Errorf("Too many monotonicity violations: %.4f%% (expected < 2.5%%)", 
+			t.Errorf("Too many monotonicity violations: %.4f%% (expected < 2.5%%)",
 				violationRate)
 		}
 	})
-	
+
 	t.Run("Monotonicity_On_Addition", func(t *testing.T) {
 		// Setup iniziale: S = 50 nodi
 		engine := NewBinomialEngine(initialNodes)
-		
+
 		// Genera 100k chiavi e calcola mappa_old[k]
 		keyToBucketOld := make(map[string]int, numKeys)
 		for i := 0; i < numKeys; i++ {
 			key := fmt.Sprintf("key-%d", i)
 			keyToBucketOld[key] = engine.GetBucket(key)
 		}
-		
+
 		// Aggiungi un nuovo nodo x
 		newNodeIndex := engine.AddBucket()
 		t.Logf("Added new node: %d", newNodeIndex)
-		
+
 		// Calcola mappa_new su S' = S ∪ {x}
-		// ASSERZIONE FORTE: per ogni k, se mappa_new[k] ≠ mappa_old[k], 
+		// ASSERZIONE FORTE: per ogni k, se mappa_new[k] ≠ mappa_old[k],
 		// allora mappa_new[k] DEVE essere il nuovo nodo x
 		monotonicityViolations := 0
 		keysMovedToNewNode := 0
 		keysStayedOnOldNode := 0
 		keysMovedToOldNode := 0
-		
+
 		for key, bucketOld := range keyToBucketOld {
 			bucketNew := engine.GetBucket(key)
-			
+
 			if bucketOld != bucketNew {
 				keysMovedToNewNode++
 				// La chiave DEVE essere andata sul nuovo nodo
@@ -810,30 +810,30 @@ func TestMementoMonotonicity(t *testing.T) {
 				keysStayedOnOldNode++
 			}
 		}
-		
-		expectedKeysMoving := float64(numKeys) / float64(initialNodes + 1)
+
+		expectedKeysMoving := float64(numKeys) / float64(initialNodes+1)
 		violationRate := float64(monotonicityViolations) / float64(numKeys) * 100
-		
+
 		t.Logf("Monotonicity on addition stats:")
-		t.Logf("  Keys moved to new node: %d (expected: ~%.0f)", 
+		t.Logf("  Keys moved to new node: %d (expected: ~%.0f)",
 			keysMovedToNewNode, expectedKeysMoving)
 		t.Logf("  Keys stayed on old nodes: %d", keysStayedOnOldNode)
 		t.Logf("  Keys incorrectly moved to old node: %d", keysMovedToOldNode)
 		t.Logf("  Violations: %d/%d (%.4f%%)", monotonicityViolations, numKeys, violationRate)
-		
+
 		// ASSERZIONE FORTE: violazioni dovrebbero essere 0 o molto vicine a 0
 		if violationRate > 0.1 {
-			t.Errorf("Too many monotonicity violations: %.4f%% (expected < 0.1%%)", 
+			t.Errorf("Too many monotonicity violations: %.4f%% (expected < 0.1%%)",
 				violationRate)
 		}
-		
+
 		// Verifica che il numero di chiavi spostate sia ragionevole (circa 1/(N+1))
 		// con tolleranza del ±30%
 		lowerBound := int(expectedKeysMoving * 0.7)
 		upperBound := int(expectedKeysMoving * 1.3)
-		
+
 		if keysMovedToNewNode < lowerBound || keysMovedToNewNode > upperBound {
-			t.Logf("Warning: Keys moved to new node (%d) outside expected range [%d, %d]", 
+			t.Logf("Warning: Keys moved to new node (%d) outside expected range [%d, %d]",
 				keysMovedToNewNode, lowerBound, upperBound)
 		}
 	})
@@ -858,12 +858,11 @@ func TestMementoLoadBalancing(t *testing.T) {
 	if consistentEngine.Size() != numNodes {
 		t.Fatalf("Expected engine size %d, got %d", numNodes, consistentEngine.Size())
 	}
-	consistentEngine.RemoveNode("node25")
 
 	// Prima distribuzione: mappa le chiavi PRIMA della rimozione
 	distributionBefore := make([]int, numNodes)
 	keyToBucket := make(map[string]int, numKeys)
-	
+
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("memento-key-%d", i)
 		bucket := consistentEngine.GetBucket(key)
@@ -886,11 +885,11 @@ func TestMementoLoadBalancing(t *testing.T) {
 	randomNodeName := nodeNames[randomNodeIndex]
 
 	t.Logf("Removing random node: %s (index: %d)", randomNodeName, randomNodeIndex)
-	
+
 	// Verifica quante chiavi erano sul nodo che stiamo per rimuovere
 	keysOnRemovedNode := distributionBefore[randomNodeIndex]
 	t.Logf("  Keys on removed node: %d", keysOnRemovedNode)
-	
+
 	consistentEngine.RemoveNode(randomNodeName)
 
 	// Verifica che il memento contenga la rimozione
@@ -905,25 +904,25 @@ func TestMementoLoadBalancing(t *testing.T) {
 	// Seconda distribuzione: mappa le chiavi DOPO la rimozione
 	distributionAfter := make([]int, numNodes)
 	keysMoved := 0
-	
+
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("memento-key-%d", i)
 		bucketAfter := consistentEngine.GetBucket(key)
 		bucketBefore := keyToBucket[key]
-		
+
 		// La chiave dopo la rimozione NON dovrebbe mai puntare al nodo rimosso
 		if bucketAfter == randomNodeIndex {
 			t.Errorf("Key %s was still mapped to removed bucket %d", key, bucketAfter)
 		}
-		
+
 		// Verifica che il bucket sia valido
 		if bucketAfter < 0 || bucketAfter >= numNodes {
 			t.Errorf("Invalid bucket %d for key %s after removal", bucketAfter, key)
 			continue
 		}
-		
+
 		distributionAfter[bucketAfter]++
-		
+
 		// Conta le chiavi che sono state spostate
 		if bucketBefore != bucketAfter {
 			keysMoved++
@@ -985,30 +984,30 @@ func TestMementoLoadBalancing(t *testing.T) {
 	minNodesPercent := float64(numNodes-1) * 0.95
 	expectedMinNodesWithKeys := int(minNodesPercent + 0.5)
 	if nonZeroNodesAfter < expectedMinNodesWithKeys {
-		t.Errorf("Expected at least %d nodes with keys after removal, got %d", 
+		t.Errorf("Expected at least %d nodes with keys after removal, got %d",
 			expectedMinNodesWithKeys, nonZeroNodesAfter)
 	}
 
 	if coefficientOfVariationAfter > 0.6 {
-		t.Errorf("Coefficient of variation too high after removal: %.4f (expected < 0.6)", 
+		t.Errorf("Coefficient of variation too high after removal: %.4f (expected < 0.6)",
 			coefficientOfVariationAfter)
 	}
 
 	maxExpectedKeys := int(meanAfter * 3.5)
 	if maxKeysAfter > maxExpectedKeys {
-		t.Errorf("Max keys per node (%d) exceeds 3.5x average (%.1f)", 
+		t.Errorf("Max keys per node (%d) exceeds 3.5x average (%.1f)",
 			maxKeysAfter, meanAfter*3.5)
 	}
 
 	// Verifica che il numero di chiavi corrisponda
 	if totalKeysAfter != numKeys {
-		t.Errorf("Total keys mismatch after removal: expected %d, got %d", 
+		t.Errorf("Total keys mismatch after removal: expected %d, got %d",
 			numKeys, totalKeysAfter)
 	}
 
 	// Verifica che tutte le chiavi del nodo rimosso siano state spostate
 	if keysMoved < keysOnRemovedNode {
-		t.Errorf("Expected at least %d keys moved, got %d", 
+		t.Errorf("Expected at least %d keys moved, got %d",
 			keysOnRemovedNode, keysMoved)
 	}
 }

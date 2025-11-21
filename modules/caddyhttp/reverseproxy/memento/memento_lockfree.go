@@ -20,22 +20,20 @@ import (
 	"sync/atomic"
 )
 
-// Memento represents the memento replacement set lookup table.
+// MementoLockFree represents the memento replacement set lookup table
+// using copy-on-write and atomic.Value for lock-free reads.
 // It tracks which buckets have been removed and their replacements.
 //
-// This is the optimized RWMutex version that:
-// - Allows lock-free reads during add/remove operations
-// - Only blocks reads during resize operations
-// - Add/remove operations are atomic and don't block reads
-//
-// For a fully lock-free version (even during writes), see MementoLockFree.
+// This version allows lock-free reads even during resize operations,
+// at the cost of copying the entire table on every write operation.
 //
 // Author: Massimo Coluzzi
-type Memento struct {
+type MementoLockFree struct {
 	// Stores the information about the removed buckets
-	table []*Entry
+	// Using atomic.Value for lock-free reads during resize
+	table atomic.Value // stores []*Entry
 
-	// The number of removed buckets (using atomic for lock-free reads)
+	// The number of removed buckets (using atomic operations)
 	size int64
 
 	// The minimum size of the memento table
@@ -44,36 +42,20 @@ type Memento struct {
 	// The maximum size of the memento table
 	maxTableSize int
 
-	// Mutex for thread safety - only used during resize to block reads
-	// Add/remove operations don't use this lock (they're atomic)
+	// Mutex for thread safety - only used for writes (add, remove, resize)
+	// Reads can proceed lock-free using atomic.Value
 	mu sync.RWMutex
 }
 
-// Entry represents an entry in the lookup table
-type Entry struct {
-	// The removed bucket
-	bucket int
-
-	// Represents the bucket that will replace the current one.
-	// This value also represents the size of the working set
-	// after the removal of the current bucket.
-	replacer int
-
-	// Keep track of the bucket removed before the current one
-	prevRemoved int
-
-	// Used if multiple entries have the same hashcode (chaining)
-	next *Entry
-}
-
-// NewMemento creates a new Memento instance (RWMutex version)
-func NewMemento() *Memento {
-	return &Memento{
-		table:        make([]*Entry, 1<<4), // 16
+// NewMementoLockFree creates a new MementoLockFree instance
+func NewMementoLockFree() *MementoLockFree {
+	m := &MementoLockFree{
 		size:         0,
 		minTableSize: 1 << 4,  // 16
 		maxTableSize: 1 << 30, // ~1 billion
 	}
+	m.table.Store(make([]*Entry, 1<<4)) // 16
+	return m
 }
 
 // Remember remembers that the given bucket has been removed
@@ -82,9 +64,8 @@ func NewMemento() *Memento {
 // (before the current one) to create the sequence of removals.
 //
 // Returns the value of the new last removed bucket
-// Note: This operation is lock-free (atomic) and doesn't block reads.
-// Only resize operations block reads.
-func (m *Memento) Remember(bucket, replacer, prevRemoved int) int {
+// Note: This operation uses copy-on-write to allow lock-free reads.
+func (m *MementoLockFree) Remember(bucket, replacer, prevRemoved int) int {
 	entry := &Entry{
 		bucket:      bucket,
 		replacer:    replacer,
@@ -92,14 +73,42 @@ func (m *Memento) Remember(bucket, replacer, prevRemoved int) int {
 		next:        nil,
 	}
 
-	// Add operation is atomic - no lock needed
-	// We read the table pointer once (atomic read of slice header)
-	table := m.table
-	m.add(entry, table)
-	newSize := atomic.AddInt64(&m.size, 1)
-	tableLen := len(table)
+	m.mu.Lock()
+	oldTable := m.getTable()
 
-	// Check if resize is needed (outside any lock to avoid blocking reads)
+	// Copy-on-write: create a new table and clone all entries
+	newTable := make([]*Entry, len(oldTable))
+	for i := 0; i < len(oldTable); i++ {
+		// Deep copy the chain
+		var prev *Entry
+		e := oldTable[i]
+		for e != nil {
+			newEntry := &Entry{
+				bucket:      e.bucket,
+				replacer:    e.replacer,
+				prevRemoved: e.prevRemoved,
+				next:        nil,
+			}
+			if prev == nil {
+				newTable[i] = newEntry
+			} else {
+				prev.next = newEntry
+			}
+			prev = newEntry
+			e = e.next
+		}
+	}
+
+	// Add the new entry to the copied table
+	m.add(entry, newTable)
+	newSize := atomic.AddInt64(&m.size, 1)
+
+	// Atomically swap in the new table
+	m.table.Store(newTable)
+	tableLen := len(newTable)
+	m.mu.Unlock()
+
+	// Check if resize is needed (outside the lock to avoid blocking reads)
 	if int(newSize) > m.capacityForSize(tableLen) {
 		m.resizeTable(tableLen << 1)
 	}
@@ -113,15 +122,9 @@ func (m *Memento) Remember(bucket, replacer, prevRemoved int) int {
 // both the bucket that replaced the given one
 // and the size of the working set after removing
 // the given bucket.
-// Note: This operation is lock-free during normal operations.
-// It only uses RLock during resize to ensure we read a consistent table.
-func (m *Memento) Replacer(bucket int) int {
-	// Try lock-free read first (optimistic path)
-	// We only need RLock if resize is in progress
-	m.mu.RLock()
-	table := m.table
-	m.mu.RUnlock()
-
+// Note: This operation is lock-free using atomic.Value.
+func (m *MementoLockFree) Replacer(bucket int) int {
+	table := m.getTable()
 	entry := m.get(bucket, table)
 	if entry != nil {
 		return entry.replacer
@@ -135,26 +138,69 @@ func (m *Memento) Replacer(bucket int) int {
 // becomes the given bucket + 1.
 //
 // Returns the new last removed bucket
-// Note: This operation is lock-free (atomic) and doesn't block reads.
-// Only resize operations block reads.
-func (m *Memento) Restore(bucket int) int {
+// Note: This operation uses copy-on-write to allow lock-free reads.
+func (m *MementoLockFree) Restore(bucket int) int {
 	if m.isEmpty() {
 		return bucket + 1
 	}
 
-	// Remove operation is atomic - no lock needed
-	// We read the table pointer once (atomic read of slice header)
-	table := m.table
-	entry := m.remove(bucket, table)
+	m.mu.Lock()
+	oldTable := m.getTable()
+
+	// Find the entry first to check if it exists
+	hash := bucket ^ (bucket >> 16)
+	index := (len(oldTable) - 1) & hash
+
+	var targetEntry *Entry
+	entry := oldTable[index]
+	for entry != nil && entry.bucket != bucket {
+		entry = entry.next
+	}
+
 	if entry == nil {
+		m.mu.Unlock()
 		return bucket + 1
 	}
 
-	prevRemoved := entry.prevRemoved
-	newSize := atomic.AddInt64(&m.size, -1)
-	tableLen := len(table)
+	targetEntry = entry
+	prevRemoved := targetEntry.prevRemoved
 
-	// Check if resize is needed (outside any lock to avoid blocking reads)
+	// Copy-on-write: create a new table and clone all entries except the removed one
+	newTable := make([]*Entry, len(oldTable))
+	for i := 0; i < len(oldTable); i++ {
+		var prevNew *Entry
+		e := oldTable[i]
+		for e != nil {
+			// Skip the entry we're removing
+			if e == targetEntry {
+				e = e.next
+				continue
+			}
+
+			newEntry := &Entry{
+				bucket:      e.bucket,
+				replacer:    e.replacer,
+				prevRemoved: e.prevRemoved,
+				next:        nil,
+			}
+			if prevNew == nil {
+				newTable[i] = newEntry
+			} else {
+				prevNew.next = newEntry
+			}
+			prevNew = newEntry
+			e = e.next
+		}
+	}
+
+	newSize := atomic.AddInt64(&m.size, -1)
+	tableLen := len(newTable)
+
+	// Atomically swap in the new table
+	m.table.Store(newTable)
+	m.mu.Unlock()
+
+	// Check if resize is needed (outside the lock to avoid blocking reads)
 	if int(newSize) <= m.capacityForSize(tableLen)>>2 {
 		m.resizeTable(tableLen >> 1)
 	}
@@ -164,35 +210,42 @@ func (m *Memento) Restore(bucket int) int {
 
 // IsEmpty returns true if the replacement set is empty
 // Note: This operation is lock-free using atomic operations.
-func (m *Memento) IsEmpty() bool {
+func (m *MementoLockFree) IsEmpty() bool {
 	return atomic.LoadInt64(&m.size) <= 0
 }
 
 // Size returns the size of the replacement set
 // Note: This operation is lock-free using atomic operations.
-func (m *Memento) Size() int {
+func (m *MementoLockFree) Size() int {
 	return int(atomic.LoadInt64(&m.size))
 }
 
 // Capacity returns the size of the lookup table used to implement the replacement set.
 // We want to keep a load factor of 0.75 to have an average access time of O(1).
 // For this reason, the declared capacity is 75% of the actual capacity.
-// Note: This operation uses RLock only to read table length during resize.
-func (m *Memento) Capacity() int {
-	m.mu.RLock()
-	tableLen := len(m.table)
-	m.mu.RUnlock()
-	return m.capacityForSize(tableLen)
+// Note: This operation is lock-free using atomic.Value.
+func (m *MementoLockFree) Capacity() int {
+	table := m.getTable()
+	return m.capacityForSize(len(table))
 }
 
 // isEmpty returns true if the replacement set is empty (internal use, no locking)
-func (m *Memento) isEmpty() bool {
+func (m *MementoLockFree) isEmpty() bool {
 	return atomic.LoadInt64(&m.size) <= 0
 }
 
 // capacityForSize returns the capacity for a given table size (internal use)
-func (m *Memento) capacityForSize(tableSize int) int {
+func (m *MementoLockFree) capacityForSize(tableSize int) int {
 	return (tableSize >> 2) * 3
+}
+
+// getTable returns the current table (lock-free read)
+func (m *MementoLockFree) getTable() []*Entry {
+	table := m.table.Load()
+	if table == nil {
+		return make([]*Entry, 1<<4)
+	}
+	return table.([]*Entry)
 }
 
 // add adds a new entry to the given table.
@@ -202,7 +255,7 @@ func (m *Memento) capacityForSize(tableSize int) int {
 // We assume the algorithm to be used properly.
 // Therefore, we do not handle the case of the same entry
 // being added twice.
-func (m *Memento) add(entry *Entry, table []*Entry) {
+func (m *MementoLockFree) add(entry *Entry, table []*Entry) {
 	// We use the same approach adopted by java.util.HashMap
 	// to compute the index. It is proven to be efficient
 	// in the majority of the cases.
@@ -216,7 +269,7 @@ func (m *Memento) add(entry *Entry, table []*Entry) {
 
 // get returns the entry related to the given bucket if any
 // table parameter allows lock-free reads using the table snapshot
-func (m *Memento) get(bucket int, table []*Entry) *Entry {
+func (m *MementoLockFree) get(bucket int, table []*Entry) *Entry {
 	// We use the same approach adopted by java.util.HashMap
 	// to compute the index. It is proven to be efficient
 	// in the majority of the cases.
@@ -234,47 +287,15 @@ func (m *Memento) get(bucket int, table []*Entry) *Entry {
 	return nil
 }
 
-// remove removes the given bucket from the lookup table
-// table parameter is the current table (must be called with lock held only during resize)
-func (m *Memento) remove(bucket int, table []*Entry) *Entry {
-	hash := bucket ^ (bucket >> 16)
-	index := (len(table) - 1) & hash
-
-	entry := table[index]
-	if entry == nil {
-		return nil
-	}
-
-	var prev *Entry
-	for entry != nil && entry.bucket != bucket {
-		prev = entry
-		entry = entry.next
-	}
-
-	if entry == nil {
-		return nil
-	}
-
-	if prev == nil {
-		table[index] = entry.next
-	} else {
-		prev.next = entry.next
-	}
-
-	entry.next = nil
-	return entry
-}
-
 // resizeTable resizes the lookup table by creating a new table and cloning
 // the entries in the old table into the new one.
-// This operation uses a write lock that BLOCKS reads during the resize.
-// Add/remove operations can continue (they're atomic), but reads are blocked
-// to ensure they see a consistent table pointer.
-func (m *Memento) resizeTable(newTableSize int) {
+// This operation uses a write lock, but reads can continue using the old table
+// until the new table is atomically swapped in.
+func (m *MementoLockFree) resizeTable(newTableSize int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	oldTable := m.table
+	oldTable := m.getTable()
 	oldTableSize := len(oldTable)
 
 	// Double-check conditions after acquiring lock
@@ -286,6 +307,7 @@ func (m *Memento) resizeTable(newTableSize int) {
 		return
 	}
 
+	// Create new table and clone entries
 	newTable := make([]*Entry, newTableSize)
 	for i := 0; i < oldTableSize; i++ {
 		entry := oldTable[i]
@@ -301,17 +323,17 @@ func (m *Memento) resizeTable(newTableSize int) {
 		}
 	}
 
-	// Atomically replace the table pointer
-	// This blocks reads (via RLock) but allows them to see consistent state
-	m.table = newTable
+	// Atomically swap the new table in
+	// This allows concurrent reads to continue using the old table
+	// until they finish, then they'll see the new table
+	m.table.Store(newTable)
 }
 
-// String returns a string representation of the Memento
-// Note: This operation uses RLock only to read table length during resize.
-func (m *Memento) String() string {
-	m.mu.RLock()
-	tableLen := len(m.table)
-	m.mu.RUnlock()
-	return fmt.Sprintf("Memento{size=%d, capacity=%d, table_size=%d}",
-		atomic.LoadInt64(&m.size), m.capacityForSize(tableLen), tableLen)
+// String returns a string representation of the MementoLockFree
+// Note: This operation is lock-free using atomic operations.
+func (m *MementoLockFree) String() string {
+	table := m.getTable()
+	return fmt.Sprintf("MementoLockFree{size=%d, capacity=%d, table_size=%d}",
+		atomic.LoadInt64(&m.size), m.capacityForSize(len(table)), len(table))
 }
+

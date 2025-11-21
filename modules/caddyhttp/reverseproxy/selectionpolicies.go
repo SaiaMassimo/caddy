@@ -987,17 +987,23 @@ func (s MementoSelection) Select(pool UpstreamPool, req *http.Request, w http.Re
 	// If the engine is not yet initialized with topology (e.g., no events in tests),
 	// fall back to random selection.
 	var bucket int
+	var nodeID string
+	
+	// Acquire read lock to protect engine and indirection (thread-safe reads)
+	s.mu.RLock()
 	if s.consistentEngine == nil || s.consistentEngine.Size() == 0 {
+		s.mu.RUnlock()
 		// Fallback: use random selection if engine not initialized
 		return s.fallback.Select(pool, req, w)
 	}
 
-	// Get bucket from consistent engine
+	// Get bucket from consistent engine (protected by RLock)
 	bucket = s.consistentEngine.GetBucket(key)
 
 	// Convert bucket index to node ID (string)
 	// The bucket index is an index in the MementoEngine, not in the pool
-	nodeID := s.consistentEngine.GetNodeID(bucket)
+	nodeID = s.consistentEngine.GetNodeID(bucket)
+	s.mu.RUnlock()
 	if nodeID == "" {
 		// Bucket index doesn't map to a valid node - this shouldn't happen
 		// but we fallback to random selection to be safe
