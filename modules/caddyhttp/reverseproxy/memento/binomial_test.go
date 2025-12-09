@@ -98,31 +98,81 @@ func TestBinomialEngineRemoveBucket(t *testing.T) {
 }
 
 func TestBinomialEngineDistribution(t *testing.T) {
-	engine := NewBinomialEngine(10)
+	const N = 10   // numero di nodi
+	const K = 1000 // numero di chiavi
+
+	engine := NewBinomialEngine(N)
 
 	// Test distribution across buckets
-	bucketCounts := make(map[int]int)
-	numKeys := 1000
+	bucketCounts := make([]int, N)
 
-	for i := 0; i < numKeys; i++ {
+	for i := 0; i < K; i++ {
 		key := "test-key-" + string(rune(i))
 		bucket := engine.GetBucket(key)
+		if bucket < 0 || bucket >= N {
+			t.Fatalf("Invalid bucket %d for key %s (range: [0, %d))", bucket, key, N)
+		}
 		bucketCounts[bucket]++
 	}
 
 	// Check that all buckets are used
-	if len(bucketCounts) != engine.Size() {
-		t.Errorf("Expected %d buckets to be used, got %d", engine.Size(), len(bucketCounts))
+	nonZeroBuckets := 0
+	for _, count := range bucketCounts {
+		if count > 0 {
+			nonZeroBuckets++
+		}
+	}
+	if nonZeroBuckets != N {
+		t.Errorf("Expected %d buckets to be used, got %d", N, nonZeroBuckets)
 	}
 
-	// Check distribution is reasonable (not perfectly uniform due to hash function)
-	expectedPerBucket := numKeys / engine.Size()
-	tolerance := expectedPerBucket / 2 // 50% tolerance
+	// Calcolo statistiche teoriche
+	// Atteso per nodo: μ = K / N
+	mu := float64(K) / float64(N)
 
-	for bucket, count := range bucketCounts {
-		if count < expectedPerBucket-tolerance || count > expectedPerBucket+tolerance {
-			t.Logf("Bucket %d has %d keys (expected ~%d)", bucket, count, expectedPerBucket)
-		}
+	// Deviazione standard teorica: σ = √(K · (1/N) · (1 − 1/N))
+	p := 1.0 / float64(N)
+	sigma := math.Sqrt(float64(K) * p * (1.0 - p))
+
+	// Calcolo statistiche osservate
+	// Media osservata
+	mean := 0.0
+	for _, count := range bucketCounts {
+		mean += float64(count)
+	}
+	mean /= float64(N)
+
+	// Deviazione standard osservata
+	variance := 0.0
+	for _, count := range bucketCounts {
+		diff := float64(count) - mean
+		variance += diff * diff
+	}
+	variance /= float64(N)
+	stdDev := math.Sqrt(variance)
+
+	// Coefficiente di variazione osservato: CV = std(node)/mean(node)
+	CV := stdDev / mean
+
+	// Coefficiente di variazione atteso: CV_atteso ≈ √[(N−1)/K]
+	CV_atteso := math.Sqrt((float64(N) - 1.0) / float64(K))
+
+	// Verifica: CV <= CV_atteso + 20%
+	CV_max := CV_atteso * 1.2
+
+	t.Logf("Distribution Test (N=%d, K=%d):", N, K)
+	t.Logf("  Expected per node (μ): %.2f", mu)
+	t.Logf("  Expected std dev (σ): %.2f", sigma)
+	t.Logf("  Observed mean: %.2f", mean)
+	t.Logf("  Observed std dev: %.2f", stdDev)
+	t.Logf("  Coefficient of Variation (CV): %.6f", CV)
+	t.Logf("  Expected CV: %.6f", CV_atteso)
+	t.Logf("  Max allowed CV (CV_atteso + 20%%): %.6f", CV_max)
+
+	// Verifica che il CV sia entro i limiti
+	if CV > CV_max {
+		t.Errorf("Coefficient of Variation too high: %.6f > %.6f (expected CV: %.6f, margin: +20%%)",
+			CV, CV_max, CV_atteso)
 	}
 }
 
@@ -239,7 +289,8 @@ func BenchmarkBinomialEngineGetBucketDifferentKeys(b *testing.B) {
 }
 
 // TestBinomialEngineLoadBalancing verifica il bilanciamento del carico
-// con 50 nodi e 100000 chiavi
+// con 50 nodi e 100000 chiavi usando le stesse statistiche rigorose
+// degli altri test (CV <= CV_atteso+20%)
 func TestBinomialEngineLoadBalancing(t *testing.T) {
 	const numNodes = 50
 	const numKeys = 100000
@@ -251,7 +302,7 @@ func TestBinomialEngineLoadBalancing(t *testing.T) {
 		t.Fatalf("Expected engine size %d, got %d", numNodes, engine.Size())
 	}
 
-	// Distribuisci 500 chiavi e conta la distribuzione
+	// Distribuisci le chiavi e conta la distribuzione
 	bucketCounts := make([]int, numNodes)
 
 	for i := 0; i < numKeys; i++ {
@@ -292,40 +343,53 @@ func TestBinomialEngineLoadBalancing(t *testing.T) {
 	t.Logf("  Max keys per bucket: %d", maxKeys)
 	t.Logf("  Average keys per bucket: %.2f", float64(numKeys)/float64(numNodes))
 
-	// Calcola il coefficiente di variazione per misurare il bilanciamento
-	mean := float64(numKeys) / float64(numNodes)
+	// Calcolo statistiche teoriche
+	// Atteso per nodo: μ = K / N
+	mu := float64(numKeys) / float64(numNodes)
+
+	// Deviazione standard teorica: σ = √(K · (1/N) · (1 − 1/N))
+	p := 1.0 / float64(numNodes)
+	sigma := math.Sqrt(float64(numKeys) * p * (1.0 - p))
+
+	// Calcolo statistiche osservate
+	// Media osservata
+	mean := 0.0
+	for _, count := range bucketCounts {
+		mean += float64(count)
+	}
+	mean /= float64(numNodes)
+
+	// Deviazione standard osservata
 	variance := 0.0
-	for i := 0; i < numNodes; i++ {
-		diff := float64(bucketCounts[i]) - mean
+	for _, count := range bucketCounts {
+		diff := float64(count) - mean
 		variance += diff * diff
 	}
 	variance /= float64(numNodes)
 	stdDev := math.Sqrt(variance)
-	coefficientOfVariation := stdDev / mean
 
-	t.Logf("  Standard deviation: %.2f", stdDev)
-	t.Logf("  Coefficient of variation: %.4f", coefficientOfVariation)
+	// Coefficiente di variazione osservato: CV = std(node)/mean(node)
+	CV := stdDev / mean
 
-	// Verifica: almeno il 90% dei bucket dovrebbe avere delle chiavi
-	expectedMinBucketsWithKeys := int(float64(numNodes) * 0.90)
-	if nonZeroBuckets < expectedMinBucketsWithKeys {
-		t.Errorf("Expected at least %d buckets with keys, got %d",
-			expectedMinBucketsWithKeys, nonZeroBuckets)
-	}
+	// Coefficiente di variazione atteso: CV_atteso ≈ √[(N−1)/K]
+	CV_atteso := math.Sqrt((float64(numNodes) - 1.0) / float64(numKeys))
 
-	// Verifica: il coefficiente di variazione dovrebbe essere ragionevole (< 0.5)
-	// Un CV più basso indica un migliore bilanciamento
-	if coefficientOfVariation > 0.5 {
-		t.Errorf("Coefficient of variation too high: %.4f (expected < 0.5)",
-			coefficientOfVariation)
-	}
+	// Verifica: CV <= CV_atteso + 20%
+	CV_max := CV_atteso * 1.2
 
-	// Verifica: nessun bucket dovrebbe essere troppo sovraccarico
-	// Il massimo dovrebbe essere al massimo 3 volte la media
-	maxExpectedKeys := int(mean * 3.0)
-	if maxKeys > maxExpectedKeys {
-		t.Errorf("Max keys per bucket (%d) exceeds 3x average (%.1f)",
-			maxKeys, mean*3.0)
+	t.Logf("Distribution Test (N=%d, K=%d):", numNodes, numKeys)
+	t.Logf("  Expected per node (μ): %.2f", mu)
+	t.Logf("  Expected std dev (σ): %.2f", sigma)
+	t.Logf("  Observed mean: %.2f", mean)
+	t.Logf("  Observed std dev: %.2f", stdDev)
+	t.Logf("  Coefficient of Variation (CV): %.6f", CV)
+	t.Logf("  Expected CV: %.6f", CV_atteso)
+	t.Logf("  Max allowed CV (CV_atteso + 20%%): %.6f", CV_max)
+
+	// Verifica che il CV sia entro i limiti
+	if CV > CV_max {
+		t.Errorf("Coefficient of Variation too high: %.6f > %.6f (expected CV: %.6f, margin: +20%%)",
+			CV, CV_max, CV_atteso)
 	}
 }
 

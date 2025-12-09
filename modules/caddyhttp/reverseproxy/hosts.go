@@ -213,6 +213,12 @@ func (u *Upstream) healthy() bool {
 	return atomic.LoadInt32(&u.unhealthy) == 0
 }
 
+// SetHealthyForTesting is a testing helper that calls setHealthy.
+// This function is exported for testing purposes only.
+func (u *Upstream) SetHealthyForTesting(healthy bool) bool {
+	return u.setHealthy(healthy)
+}
+
 // SetHealthy sets the upstream has healthy or unhealthy
 // and returns true if the new value is different. This
 // sets the status only for the "active" health checks.

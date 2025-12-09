@@ -12,19 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package memento
+package mementobenchmark
 
 import (
 	"fmt"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
 
 // BenchmarkMemento_RWMutex_ConcurrentReads benchmarks the RWMutex version
 // with concurrent reads and occasional writes/resizes
 func BenchmarkMemento_RWMutex_ConcurrentReads(b *testing.B) {
-	m := NewMemento()
+	m := memento.NewMemento()
 
 	// Pre-populate with some entries
 	for i := 0; i < 100; i++ {
@@ -42,7 +44,7 @@ func BenchmarkMemento_RWMutex_ConcurrentReads(b *testing.B) {
 // BenchmarkMemento_LockFree_ConcurrentReads benchmarks the lock-free version
 // with concurrent reads and occasional writes/resizes
 func BenchmarkMemento_LockFree_ConcurrentReads(b *testing.B) {
-	m := NewMementoLockFree()
+	m := memento.NewMementoLockFree()
 
 	// Pre-populate with some entries
 	for i := 0; i < 100; i++ {
@@ -60,7 +62,7 @@ func BenchmarkMemento_LockFree_ConcurrentReads(b *testing.B) {
 // BenchmarkMemento_RWMutex_ConcurrentReadsAndWrites benchmarks the RWMutex version
 // with concurrent reads and writes (10% writes, 90% reads - realistic for load balancing)
 func BenchmarkMemento_RWMutex_ConcurrentReadsAndWrites(b *testing.B) {
-	m := NewMemento()
+	m := memento.NewMemento()
 
 	// Pre-populate with some entries
 	for i := 0; i < 50; i++ {
@@ -86,7 +88,7 @@ func BenchmarkMemento_RWMutex_ConcurrentReadsAndWrites(b *testing.B) {
 // BenchmarkMemento_LockFree_ConcurrentReadsAndWrites benchmarks the lock-free version
 // with concurrent reads and writes (10% writes, 90% reads - realistic for load balancing)
 func BenchmarkMemento_LockFree_ConcurrentReadsAndWrites(b *testing.B) {
-	m := NewMementoLockFree()
+	m := memento.NewMementoLockFree()
 
 	// Pre-populate with some entries
 	for i := 0; i < 50; i++ {
@@ -114,7 +116,7 @@ func BenchmarkMemento_LockFree_ConcurrentReadsAndWrites(b *testing.B) {
 // This represents a production load balancer where node changes are very rare
 // Writers run in separate goroutines to simulate realistic scenario
 func BenchmarkMemento_RWMutex_RealisticLoadBalancing(b *testing.B) {
-	m := NewMemento()
+	m := memento.NewMemento()
 
 	// Pre-populate with some entries
 	for i := 0; i < 100; i++ {
@@ -163,7 +165,7 @@ func BenchmarkMemento_RWMutex_RealisticLoadBalancing(b *testing.B) {
 // This represents a production load balancer where node changes are very rare
 // Writers run in separate goroutines to simulate realistic scenario
 func BenchmarkMemento_LockFree_RealisticLoadBalancing(b *testing.B) {
-	m := NewMementoLockFree()
+	m := memento.NewMementoLockFree()
 
 	// Pre-populate with some entries
 	for i := 0; i < 100; i++ {
@@ -210,7 +212,7 @@ func BenchmarkMemento_LockFree_RealisticLoadBalancing(b *testing.B) {
 // BenchmarkMemento_RWMutex_ResizeStress benchmarks the RWMutex version
 // during frequent resize operations (worst case scenario)
 func BenchmarkMemento_RWMutex_ResizeStress(b *testing.B) {
-	m := NewMemento()
+	m := memento.NewMemento()
 
 	var wg sync.WaitGroup
 	stop := make(chan bool)
@@ -245,7 +247,7 @@ func BenchmarkMemento_RWMutex_ResizeStress(b *testing.B) {
 // BenchmarkMemento_LockFree_ResizeStress benchmarks the lock-free version
 // during frequent resize operations (worst case scenario)
 func BenchmarkMemento_LockFree_ResizeStress(b *testing.B) {
-	m := NewMementoLockFree()
+	m := memento.NewMementoLockFree()
 
 	var wg sync.WaitGroup
 	stop := make(chan bool)
@@ -279,7 +281,7 @@ func BenchmarkMemento_LockFree_ResizeStress(b *testing.B) {
 
 // BenchmarkMementoEngine_RWMutex benchmarks MementoEngine with RWMutex version
 func BenchmarkMementoEngine_RWMutex(b *testing.B) {
-	engine := NewMementoEngineWithType(100, false)
+	engine := memento.NewMementoEngineWithType(100, false)
 
 	// Pre-populate with removals
 	for i := 0; i < 50; i++ {
@@ -298,7 +300,7 @@ func BenchmarkMementoEngine_RWMutex(b *testing.B) {
 
 // BenchmarkMementoEngine_LockFree benchmarks MementoEngine with lock-free version
 func BenchmarkMementoEngine_LockFree(b *testing.B) {
-	engine := NewMementoEngineWithType(100, true)
+	engine := memento.NewMementoEngineWithType(100, true)
 
 	// Pre-populate with removals
 	for i := 0; i < 50; i++ {

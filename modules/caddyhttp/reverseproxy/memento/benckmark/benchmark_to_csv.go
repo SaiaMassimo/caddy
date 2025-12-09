@@ -34,7 +34,7 @@ func main() {
 	}
 
 	inputFile := os.Args[1]
-	outputFile := "benchmark_results.csv"
+	outputFile := "benchmark_results_new.csv"
 	if len(os.Args) > 2 {
 		outputFile = os.Args[2]
 	}

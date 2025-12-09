@@ -854,8 +854,8 @@ func TestCookieHashPolicyWithFirstFallback(t *testing.T) {
 func TestMementoSelectionPolicy(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -889,8 +889,8 @@ func TestMementoSelectionPolicy(t *testing.T) {
 func TestMementoSelectionPolicyURI(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "uri"}
+
+	mementoPolicy := MementoSelection{Field: "uri"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -922,8 +922,8 @@ func TestMementoSelectionPolicyURI(t *testing.T) {
 func TestMementoSelectionPolicyHeader(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{
+
+	mementoPolicy := MementoSelection{
 		Field:       "header",
 		HeaderField: "User-Agent",
 	}
@@ -959,23 +959,23 @@ func TestMementoSelectionPolicyHeader(t *testing.T) {
 func TestMementoSelectionPolicyDistribution(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
 	}
 
 	pool := testPool()
-	
+
 	// Test distribution across hosts
 	hostCounts := make(map[*Upstream]int)
 	numRequests := 1000
-	
+
 	for i := 0; i < numRequests; i++ {
 		req, _ := http.NewRequest("GET", "/", nil)
 		req.RemoteAddr = fmt.Sprintf("172.0.0.%d:80", i%256)
-		
+
 		h := mementoPolicy.Select(pool, req, nil)
 		if h != nil {
 			hostCounts[h]++
@@ -990,7 +990,7 @@ func TestMementoSelectionPolicyDistribution(t *testing.T) {
 	// Check distribution is reasonable
 	expectedPerHost := numRequests / len(pool)
 	tolerance := expectedPerHost / 2 // 50% tolerance
-	
+
 	for host, count := range hostCounts {
 		if count < expectedPerHost-tolerance || count > expectedPerHost+tolerance {
 			t.Logf("Host %s has %d requests (expected ~%d)", host.Dial, count, expectedPerHost)
@@ -1001,15 +1001,15 @@ func TestMementoSelectionPolicyDistribution(t *testing.T) {
 func TestMementoSelectionPolicyWithUnavailableHosts(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
 	}
 
 	pool := testPool()
-	
+
 	// Mark some hosts as unavailable
 	pool[1].setHealthy(false)
 	pool[2].setHealthy(false)
@@ -1036,8 +1036,8 @@ func TestMementoSelectionPolicyWithUnavailableHosts(t *testing.T) {
 func BenchmarkMementoSelectionPolicy(b *testing.B) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
@@ -1055,8 +1055,8 @@ func BenchmarkMementoSelectionPolicy(b *testing.B) {
 func BenchmarkMementoSelectionPolicyDifferentIPs(b *testing.B) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
@@ -1074,13 +1074,13 @@ func BenchmarkMementoSelectionPolicyDifferentIPs(b *testing.B) {
 func TestMementoSelectionPolicyConsistent(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
 	}
-	
+
 	// Note: Without events app, the policy will work but won't have real-time topology updates
 	// This is expected behavior in test environments
 
@@ -1134,8 +1134,8 @@ func TestMementoSelectionPolicyConsistent(t *testing.T) {
 func TestMementoSelectionPolicyChangeDetection(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -1161,7 +1161,7 @@ func TestMementoSelectionPolicyChangeDetection(t *testing.T) {
 
 	// Test topology change detection
 	pool[1].setHealthy(false)
-	
+
 	// This should trigger an update due to topology change
 	h3 := mementoPolicy.Select(pool, req, nil)
 	if h3 == nil {
@@ -1181,7 +1181,7 @@ func TestMementoSelectionPolicyChangeDetection(t *testing.T) {
 
 	// Restore the host
 	pool[1].setHealthy(true)
-	
+
 	// This should trigger another update due to topology change
 	h5 := mementoPolicy.Select(pool, req, nil)
 	if h5 == nil {
@@ -1195,12 +1195,11 @@ func TestMementoSelectionPolicyChangeDetection(t *testing.T) {
 	}
 }
 
-
 func TestMementoSelectionPolicyMultipleTopologyChanges(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
@@ -1269,24 +1268,24 @@ func TestMementoSelectionPolicyMultipleTopologyChanges(t *testing.T) {
 func TestMementoSelectionPolicyEventDriven(t *testing.T) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
 	}
-	
+
 	// Test that the policy can handle events directly
 	pool := testPool()
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "172.0.0.1:80"
-	
+
 	// Initial selection
 	h1 := mementoPolicy.Select(pool, req, nil)
 	if h1 == nil {
 		t.Error("Expected memento policy to select a host")
 	}
-	
+
 	// Test that Handle method works for healthy events
 	healthyEvent := caddy.Event{
 		Data: map[string]any{"host": "localhost:8080"},
@@ -1295,7 +1294,7 @@ func TestMementoSelectionPolicyEventDriven(t *testing.T) {
 	if err != nil {
 		t.Errorf("Handle healthy event error: %v", err)
 	}
-	
+
 	// Test that Handle method works for unhealthy events
 	unhealthyEvent := caddy.Event{
 		Data: map[string]any{"host": "localhost:8081"},
@@ -1304,7 +1303,7 @@ func TestMementoSelectionPolicyEventDriven(t *testing.T) {
 	if err != nil {
 		t.Errorf("Handle unhealthy event error: %v", err)
 	}
-	
+
 	// Test consistency after events
 	h2 := mementoPolicy.Select(pool, req, nil)
 	if h2 == nil {
@@ -1316,104 +1315,109 @@ func TestMementoSelectionFullEventIntegration(t *testing.T) {
 	// Create a full Caddy context with events app
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
+
 	// Create events app
 	eventsApp := &caddyevents.App{}
 	if err := eventsApp.Provision(ctx); err != nil {
 		t.Errorf("Failed to provision events app: %v", err)
 		t.FailNow()
 	}
-	
+
 	// Create MementoSelection policy
 	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		t.Errorf("Provision error: %v", err)
 		t.FailNow()
 	}
-	
+
 	// Test SetEventsApp integration BEFORE starting the events app
 	mementoPolicy.SetEventsApp(eventsApp)
-	
+
 	// Verify that events app is set
 	if mementoPolicy.events == nil {
 		t.Error("Expected events app to be set after SetEventsApp call")
 	}
-	
+
 	// NOW start the events app to enable subscriptions
 	if err := eventsApp.Start(); err != nil {
 		t.Errorf("Failed to start events app: %v", err)
 		t.FailNow()
 	}
-	
+
 	// Create test pool with specific hosts
 	pool := []*Upstream{
 		{Dial: "localhost:8080"},
 		{Dial: "localhost:8081"},
 		{Dial: "localhost:8082"},
 	}
-	
+
 	// Create test request
 	req, _ := http.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "172.0.0.1:80"
-	
+
 	// Test initial selection (should use fallback since no events yet)
 	h1 := mementoPolicy.Select(pool, req, nil)
 	if h1 == nil {
 		t.Error("Expected memento policy to select a host")
 	}
-	
+
 	// Simulate healthy events for all hosts using the events app
 	for _, upstream := range pool {
 		eventData := map[string]any{"host": upstream.Dial}
 		eventsApp.Emit(ctx, "healthy", eventData)
 	}
-	
+
 	// Verify topology is updated
-	mementoPolicy.mu.RLock()
-	topologySize := len(mementoPolicy.topology)
-	mementoPolicy.mu.RUnlock()
-	
+	topologySize := 0
+	mementoPolicy.topology.Range(func(_, _ interface{}) bool {
+		topologySize++
+		return true
+	})
+
 	if topologySize != 3 {
 		t.Errorf("Expected topology size 3, got %d", topologySize)
 	}
-	
+
 	// Test selection after topology is populated
 	h2 := mementoPolicy.Select(pool, req, nil)
 	if h2 == nil {
 		t.Error("Expected memento policy to select a host after topology update")
 	}
-	
+
 	// Test consistency - same key should select same host
 	h3 := mementoPolicy.Select(pool, req, nil)
 	if h2.Dial != h3.Dial {
 		t.Error("Expected consistent selection for same key")
 	}
-	
+
 	// Simulate unhealthy event for one host using the events app
 	eventData := map[string]any{"host": "localhost:8081"}
 	eventsApp.Emit(ctx, "unhealthy", eventData)
-	
-	// Verify topology is updated
-	mementoPolicy.mu.RLock()
-	topologySizeAfterUnhealthy := len(mementoPolicy.topology)
-	mementoPolicy.mu.RUnlock()
-	
-	if topologySizeAfterUnhealthy != 3 {
-		t.Errorf("Expected topology size to remain 3 after unhealthy event, got %d", topologySizeAfterUnhealthy)
+
+	// Verify topology is updated (unhealthy node should be removed)
+	topologySizeAfterUnhealthy := 0
+	mementoPolicy.topology.Range(func(_, _ interface{}) bool {
+		topologySizeAfterUnhealthy++
+		return true
+	})
+
+	// After unhealthy event, the node should be removed from topology
+	if topologySizeAfterUnhealthy != 2 {
+		t.Errorf("Expected topology size to be 2 after unhealthy event (one node removed), got %d", topologySizeAfterUnhealthy)
 	}
-	
+
 	// Test selection after unhealthy event
 	h4 := mementoPolicy.Select(pool, req, nil)
 	if h4 == nil {
 		t.Error("Expected memento policy to select a host after unhealthy event")
 	}
-	
+
 	// The selection might change due to topology update, but should still be consistent
 	h5 := mementoPolicy.Select(pool, req, nil)
 	if h4.Dial != h5.Dial {
 		t.Error("Expected consistent selection after unhealthy event")
 	}
-	
+
 	// Test that the policy handles events without crashing
 	t.Logf("MementoSelection successfully integrated with events system")
 }
@@ -1421,8 +1425,8 @@ func TestMementoSelectionFullEventIntegration(t *testing.T) {
 func BenchmarkMementoSelectionPolicyChangeDetection(b *testing.B) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
@@ -1440,8 +1444,8 @@ func BenchmarkMementoSelectionPolicyChangeDetection(b *testing.B) {
 func BenchmarkMementoSelectionPolicyChangeDetectionWithTopologyChanges(b *testing.B) {
 	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
 	defer cancel()
-	
-    mementoPolicy := MementoSelection{Field: "ip"}
+
+	mementoPolicy := MementoSelection{Field: "ip"}
 	if err := mementoPolicy.Provision(ctx); err != nil {
 		b.Fatalf("Provision error: %v", err)
 	}
@@ -1458,7 +1462,7 @@ func BenchmarkMementoSelectionPolicyChangeDetectionWithTopologyChanges(b *testin
 		} else if i%1000 == 500 {
 			pool[1].setHealthy(true)
 		}
-		
+
 		mementoPolicy.Select(pool, req, nil)
 	}
 }

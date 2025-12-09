@@ -1,0 +1,10 @@
+Benchmark,NsPerOp,AllocBytes,AllocsPerOp,CPU,GOOS,GOARCH
+BenchmarkConcurrentSelection_ProductionLike/Memento_RWMutex_Optimized_Balanced_50Removals_50Additions_100Upstreams,355.000000,531,4,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64
+BenchmarkConcurrentSelection_ProductionLike/Memento_LockFree_CopyOnWrite_Balanced_50Removals_50Additions_100Upstreams,357.700000,531,4,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64
+BenchmarkConcurrentSelection_ProductionLike/Rendezvous_Balanced_50Removals_50Additions_100Upstreams,1510.000000,528,4,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64
+BenchmarkConcurrentSelection_ProductionLike/Memento_RWMutex_Optimized_RemovalHeavy_80Removals_20Additions_100Upstreams,404.000000,532,4,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64
+BenchmarkConcurrentSelection_ProductionLike/Memento_LockFree_CopyOnWrite_RemovalHeavy_80Removals_20Additions_100Upstreams,346.900000,531,4,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64
+BenchmarkConcurrentSelection_ProductionLike/Rendezvous_RemovalHeavy_80Removals_20Additions_100Upstreams,1477.000000,528,4,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64
+BenchmarkConcurrentSelection_ProductionLike/Memento_RWMutex_Optimized_AdditionHeavy_20Removals_80Additions_100Upstreams,338.400000,528,4,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64
+BenchmarkConcurrentSelection_ProductionLike/Memento_LockFree_CopyOnWrite_AdditionHeavy_20Removals_80Additions_100Upstreams,334.100000,528,4,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64
+BenchmarkConcurrentSelection_ProductionLike/Rendezvous_AdditionHeavy_20Removals_80Additions_100Upstreams,1477.000000,528,4,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64

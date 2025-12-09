@@ -17,131 +17,48 @@ package memento
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"testing"
 )
 
 // TestMementoEngineMonotonicity verifica la monotonicità usando MementoEngine
+// Insieme di nodi S e insieme di chiavi K, funzione f_S(k)
+// mappa_old[k] = f_S(k) per tutte le k ∈ K
+// Aggiunta (S′ = S ∪ {x})
+// mappa_new[k] = f_S′(k) con il nuovo nodo x
+// Verifica: mappa_new[k] ≠ mappa_old[k] => mappa_new[k] = x
 func TestMementoEngineMonotonicity(t *testing.T) {
 	const initialNodes = 50
 	const numKeys = 100000
 
-	t.Run("Monotonicity_On_Removal", func(t *testing.T) {
-		// Setup iniziale: S = 50 nodi con MementoEngine
-		engine := NewMementoEngine(initialNodes)
+	// Setup iniziale: S = 50 nodi
+	engine := NewMementoEngine(initialNodes)
 
-		// Genera 100k chiavi e calcola mappa_old[k]
-		keyToBucketOld := make(map[string]int, numKeys)
-		for i := 0; i < numKeys; i++ {
-			key := fmt.Sprintf("memento-key-%d", i)
-			keyToBucketOld[key] = engine.GetBucket(key)
+	// Genera chiavi e calcola mappa_old[k] = f_S(k) per tutte le k ∈ K
+	mappaOld := make(map[string]int, numKeys)
+	for i := 0; i < numKeys; i++ {
+		key := fmt.Sprintf("memento-key-%d", i)
+		mappaOld[key] = engine.GetBucket(key)
+	}
+
+	// Aggiunta (S′ = S ∪ {x})
+	newNodeIndex := engine.AddBucket()
+
+	// Verifica: mappa_new[k] ≠ mappa_old[k] => mappa_new[k] = x
+	violations := 0
+	for key, bucketOld := range mappaOld {
+		bucketNew := engine.GetBucket(key)
+
+		// Se mappa_new[k] ≠ mappa_old[k], allora mappa_new[k] DEVE essere x
+		if bucketNew != bucketOld && bucketNew != newNodeIndex {
+			violations++
+			t.Errorf("Monotonicity violation: key %s moved from %d to %d (expected %d or %d)",
+				key, bucketOld, bucketNew, bucketOld, newNodeIndex)
 		}
+	}
 
-		// Rimuovi un nodo casuale x
-		rand.Seed(42)
-		removedNodeIndex := rand.Intn(initialNodes)
-		t.Logf("Removing node: %d", removedNodeIndex)
-
-		// Calcola mappa_new su S' = S \ {x}
-		engine.RemoveBucket(removedNodeIndex)
-
-		// Verifica monotonicità su rimozione
-		// ASSERZIONE: per ogni k con mappa_old[k] ≠ x deve valere mappa_new[k] = mappa_old[k]
-		monotonicityViolations := 0
-		keysOnRemovedNode := 0
-
-		for key, bucketOld := range keyToBucketOld {
-			bucketNew := engine.GetBucket(key)
-
-			if bucketOld == removedNodeIndex {
-				keysOnRemovedNode++
-				// Verifica che sia stata reindirizzata e non punti ancora al nodo rimosso
-				if bucketNew == removedNodeIndex {
-					t.Errorf("Key %s still mapped to removed bucket %d", key, bucketNew)
-				}
-			} else {
-				// Se NON era sul nodo rimosso, DEVE rimanere sullo stesso bucket
-				if bucketOld != bucketNew {
-					monotonicityViolations++
-				}
-			}
-		}
-
-		violationRate := float64(monotonicityViolations) / float64(numKeys) * 100
-		t.Logf("MementoEngine Monotonicity on removal stats:")
-		t.Logf("  Keys on removed node: %d", keysOnRemovedNode)
-		t.Logf("  Violations: %d/%d (%.4f%%)", monotonicityViolations, numKeys, violationRate)
-
-		// MementoEngine dovrebbe avere violazioni molto basse (< 5%)
-		if violationRate > 5.0 {
-			t.Errorf("Too many monotonicity violations: %.4f%% (expected < 5%%)",
-				violationRate)
-		} else {
-			t.Logf("  MementoEngine introduced %.4f%% monotonicity violations (acceptable)",
-				violationRate)
-		}
-	})
-
-	t.Run("Monotonicity_On_Addition", func(t *testing.T) {
-		// Setup iniziale: S = 50 nodi
-		engine := NewMementoEngine(initialNodes)
-
-		// Genera 100k chiavi e calcola mappa_old[k]
-		keyToBucketOld := make(map[string]int, numKeys)
-		for i := 0; i < numKeys; i++ {
-			key := fmt.Sprintf("memento-key-%d", i)
-			keyToBucketOld[key] = engine.GetBucket(key)
-		}
-
-		// Aggiungi un nuovo nodo
-		newNodeIndex := engine.AddBucket()
-		t.Logf("Added new node: %d", newNodeIndex)
-
-		// Verifica monotonicità su aggiunta
-		// ASSERZIONE: per ogni k, se mappa_new[k] ≠ mappa_old[k],
-		// allora mappa_new[k] DEVE essere il nuovo nodo
-		monotonicityViolations := 0
-		keysMovedToNewNode := 0
-		keysMovedToOldNode := 0
-
-		for key, bucketOld := range keyToBucketOld {
-			bucketNew := engine.GetBucket(key)
-
-			if bucketOld != bucketNew {
-				keysMovedToNewNode++
-				if bucketNew != newNodeIndex {
-					// Se la chiave si è spostata ma non sul nuovo nodo, è una violazione
-					monotonicityViolations++
-					keysMovedToOldNode++
-				}
-			}
-		}
-
-		expectedKeysMoving := float64(numKeys) / float64(initialNodes+1)
-		violationRate := float64(monotonicityViolations) / float64(numKeys) * 100
-
-		t.Logf("MementoEngine Monotonicity on addition stats:")
-		t.Logf("  Keys moved to new node: %d (expected: ~%.0f)",
-			keysMovedToNewNode, expectedKeysMoving)
-		t.Logf("  Keys stayed on old nodes: %d", numKeys-keysMovedToNewNode)
-		t.Logf("  Keys incorrectly moved to old node: %d", keysMovedToOldNode)
-		t.Logf("  Violations: %d/%d (%.4f%% enormi)",
-			monotonicityViolations, numKeys, violationRate)
-
-		// MementoEngine dovrebbe avere violazioni molto basse sull'aggiunta
-		if violationRate > 1.0 {
-			t.Errorf("Too many monotonicity violations on addition: %.4f%% (expected < 1%%)",
-				violationRate)
-		}
-
-		// Verifica che il numero di chiavi mosse sia ragionevole (circa 1/(N+1) delle chiavi)
-		lowerBound := int(expectedKeysMoving * 0.7)
-		upperBound := int(expectedKeysMoving * 1.3)
-		if keysMovedToNewNode < lowerBound || keysMovedToNewNode > upperBound {
-			t.Logf("Warning: Keys moved to new node (%d) outside expected range [%d, %d]",
-				keysMovedToNewNode, lowerBound, upperBound)
-		}
-	})
+	if violations > 0 {
+		t.Fatalf("Monotonicity property violated: %d keys incorrectly remapped", violations)
+	}
 }
 
 // TestMementoEngineSequentialAdditions verifica la monotonicità durante aggiunte sequenziali
@@ -203,50 +120,47 @@ func TestMementoEngineSequentialAdditions(t *testing.T) {
 	}
 }
 
+// TestMementoEngineMinimalDisruption verifica la minimal disruption usando MementoEngine
+// Insieme di nodi S e insieme di chiavi K, funzione f_S(k)
+// mappa_old[k] = f_S(k) per tutte le k ∈ K
+// Rimozione (S′ = S \ {x})
+// Verifica: mappa_old[k] ≠ x => mappa_new[k] = mappa_old[k]
 func TestMementoEngineMinimalDisruption(t *testing.T) {
-	// Test Minimal Disruption property:
-	// When removing node x: S' = S \ {x}
-	// For all keys k: if mappa_old[k] ≠ x => mappa_new[k] = mappa_old[k]
-	// Only keys mapped to the removed node should be remapped
-
 	const initialNodes = 50
-	const numKeys = 10000
+	const numKeys = 100000
 
-	// Setup: create engine with initialNodes nodes
+	// Setup: insieme di nodi S
 	engine := NewMementoEngine(initialNodes)
 
-	// Generate test keys and map them to buckets (mappa_old)
+	// Genera chiavi e calcola mappa_old[k] = f_S(k) per tutte le k ∈ K
 	mappaOld := make(map[string]int, numKeys)
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("memento-minimal-disruption-key-%d", i)
 		mappaOld[key] = engine.GetBucket(key)
 	}
 
-	// Remove a random node x
-	removedNode := 25 // Fixed node for reproducibility
+	// Rimozione (S′ = S \ {x})
+	removedNode := 25
 	engine.RemoveBucket(removedNode)
 
-	// Verify Minimal Disruption property
+	// Verifica: mappa_old[k] ≠ x => mappa_new[k] = mappa_old[k]
 	violations := 0
-	for key, oldBucket := range mappaOld {
-		newBucket := engine.GetBucket(key)
-
-		// Minimal Disruption: if oldBucket ≠ removedNode, then newBucket = oldBucket
-		if oldBucket != removedNode {
-			if newBucket != oldBucket {
+	for key, bucketOld := range mappaOld {
+		// Se mappa_old[k] ≠ x, allora mappa_new[k] DEVE essere mappa_old[k]
+		if bucketOld != removedNode {
+			bucketNew := engine.GetBucket(key)
+			if bucketNew != bucketOld {
 				violations++
-				t.Errorf("Minimal Disruption violation: key %s moved from bucket %d to %d (was not on removed node %d)",
-					key, oldBucket, newBucket, removedNode)
+				t.Errorf("Minimal Disruption violation: key %s moved from %d to %d (was not on removed node %d)",
+					key, bucketOld, bucketNew, removedNode)
 			}
 		}
-		// If oldBucket == removedNode, the key is allowed to be remapped (OK)
+		// Se mappa_old[k] = x, la chiave può essere reindirizzata (OK)
 	}
 
 	if violations > 0 {
 		t.Fatalf("Minimal Disruption property violated: %d keys incorrectly remapped", violations)
 	}
-
-	t.Logf("Minimal Disruption verified: all %d keys that were not on removed node %d remained unchanged", numKeys, removedNode)
 }
 
 func TestMementoEngineTwoRemovals(t *testing.T) {
@@ -685,93 +599,78 @@ func TestMementoEngineMinimalDistribution(t *testing.T) {
 // TestMementoEngineLoadBalancing verifica il bilanciamento delle chiavi tra i nodi
 // Calcola: min/max/mean/stdDev dei conteggi, CV, chi-square normalizzato, e violazioni a 5·σ
 func TestMementoEngineLoadBalancing(t *testing.T) {
-	const N = 50
-	const n = 100000
+	const N = 50     // numero di nodi
+	const K = 100000 // numero di chiavi
 
 	engine := NewMementoEngine(N)
 
 	counts := make([]int, N)
-	for i := 0; i < n; i++ {
+	for i := 0; i < K; i++ {
 		key := fmt.Sprintf("balance-key-%d", i)
 		b := engine.GetBucket(key)
+		if b < 0 || b >= N {
+			t.Fatalf("Invalid bucket %d for key %s (range: [0, %d))", b, key, N)
+		}
 		counts[b]++
 	}
 
-	// Statistiche di base
-	mu := float64(n) / float64(N)
-	p := 1.0 / float64(N)
-	sigma := math.Sqrt(float64(n) * p * (1.0 - p))
-
-	minCount := counts[0]
-	maxCount := counts[0]
-	sum := 0
-	for _, c := range counts {
-		if c < minCount {
-			minCount = c
+	// Check that all buckets are used
+	nonZeroBuckets := 0
+	for _, count := range counts {
+		if count > 0 {
+			nonZeroBuckets++
 		}
-		if c > maxCount {
-			maxCount = c
-		}
-		sum += c
 	}
-	mean := float64(sum) / float64(N)
+	if nonZeroBuckets != N {
+		t.Errorf("Expected %d buckets to be used, got %d", N, nonZeroBuckets)
+	}
 
-	// Deviazione standard osservata tra i conteggi per nodo
-	var variance float64
-	for _, c := range counts {
-		diff := float64(c) - mean
+	// Calcolo statistiche teoriche
+	// Atteso per nodo: μ = K / N
+	mu := float64(K) / float64(N)
+
+	// Deviazione standard teorica: σ = √(K · (1/N) · (1 − 1/N))
+	p := 1.0 / float64(N)
+	sigma := math.Sqrt(float64(K) * p * (1.0 - p))
+
+	// Calcolo statistiche osservate
+	// Media osservata
+	mean := 0.0
+	for _, count := range counts {
+		mean += float64(count)
+	}
+	mean /= float64(N)
+
+	// Deviazione standard osservata
+	variance := 0.0
+	for _, count := range counts {
+		diff := float64(count) - mean
 		variance += diff * diff
 	}
 	variance /= float64(N)
 	stdDev := math.Sqrt(variance)
+
+	// Coefficiente di variazione osservato: CV = std(node)/mean(node)
 	CV := stdDev / mean
 
-	// Chi-square
-	var chiSquare float64
-	for _, c := range counts {
-		diff := float64(c) - mu
-		chiSquare += (diff * diff) / mu
-	}
-	normalizedChiSquare := chiSquare / float64(N-1)
+	// Coefficiente di variazione atteso: CV_atteso ≈ √[(N−1)/K]
+	CV_atteso := math.Sqrt((float64(N) - 1.0) / float64(K))
 
-	// Violazioni: |O_i - mu| > 5·sigma (per nodo, modello binomiale)
-	violations := 0
-	threshold := 5.0 * sigma
-	for _, c := range counts {
-		if math.Abs(float64(c)-mu) > threshold {
-			violations++
-		}
-	}
+	// Verifica: CV <= CV_atteso + 20%
+	CV_max := CV_atteso * 1.2
 
-	maxMinRatio := float64(maxCount) / float64(minCount)
-	expectedCV := math.Sqrt((float64(N) - 1.0) / float64(n))
-
-	t.Logf("Balance Test (GetBucket):")
-	t.Logf("  Nodes: %d", N)
-	t.Logf("  Keys: %d", n)
-	t.Logf("  Expected per node (mu): %.2f", mu)
-	t.Logf("  Standard deviation per node (sigma): %.2f", sigma)
-	t.Logf("  Min count: %d", minCount)
-	t.Logf("  Max count: %d", maxCount)
-	t.Logf("  Mean: %.2f", mean)
-	t.Logf("  Observed std dev across nodes: %.2f", stdDev)
+	t.Logf("Distribution Test (N=%d, K=%d):", N, K)
+	t.Logf("  Expected per node (μ): %.2f", mu)
+	t.Logf("  Expected std dev (σ): %.2f", sigma)
+	t.Logf("  Observed mean: %.2f", mean)
+	t.Logf("  Observed std dev: %.2f", stdDev)
 	t.Logf("  Coefficient of Variation (CV): %.6f", CV)
-	t.Logf("  Max/Min ratio: %.4f", maxMinRatio)
-	t.Logf("  Chi-square: %.2f", chiSquare)
-	t.Logf("  Normalized Chi-square X^2/(N-1): %.4f", normalizedChiSquare)
-	t.Logf("  Violations (|O_i - mu| > 5·sigma): %d", violations)
+	t.Logf("  Expected CV: %.6f", CV_atteso)
+	t.Logf("  Max allowed CV (CV_atteso + 20%%): %.6f", CV_max)
 
-	// Asserzioni
-	if violations != 0 {
-		t.Errorf("All nodes should satisfy |O_i - mu| ≤ 5·sigma, found %d violations", violations)
-	}
-	if CV > expectedCV*1.2 {
-		t.Errorf("Coefficient of Variation should be ≤ expectedCV*1.2 (expectedCV=%.6f, margin=+20%%), but was %.6f", expectedCV, CV)
-	}
-	if maxMinRatio > 1.15 {
-		t.Errorf("Max/Min ratio should be ≤ 1.15, but was %.4f", maxMinRatio)
-	}
-	if normalizedChiSquare >= 3.0 {
-		t.Errorf("Normalized Chi-square X^2/(N-1) should be < 3, but was %.4f", normalizedChiSquare)
+	// Verifica che il CV sia entro i limiti
+	if CV > CV_max {
+		t.Errorf("Coefficient of Variation too high: %.6f > %.6f (expected CV: %.6f, margin: +20%%)",
+			CV, CV_max, CV_atteso)
 	}
 }

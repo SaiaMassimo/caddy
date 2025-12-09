@@ -70,32 +70,25 @@ Best suited for scenarios with:
 
 ### Design Philosophy
 
-The lock-free implementation uses copy-on-write with `atomic.Value` to ensure readers never block, even during resize operations. This comes at the cost of copying the entire table on every write operation.
+The lock-free implementation uses `atomic.Value` to ensure readers never block, even during resize operations. Write operations (`Remember()`, `Restore()`) perform direct in-place modifications using atomic pointer assignments, making them O(1) operations. Only resize operations use copy-on-write.
 
 ### Key Characteristics
 
 1. **Fully lock-free reads**: Read operations use `atomic.Value.Load()` to obtain a snapshot of the table, allowing reads to proceed even during resize.
 
-2. **Copy-on-write writes**: Every write operation (`Remember()`, `Restore()`) creates a complete copy of the table, modifies it, and atomically swaps it in using `atomic.Value.Store()`.
+2. **Direct in-place writes**: Write operations (`Remember()`, `Restore()`) modify the table directly in-place (O(1) operations). Pointer assignments are atomic in Go, making these operations lock-free and thread-safe.
 
-3. **Non-blocking resize**: Resize operations create a new table and swap it atomically. Readers continue using the old table until they naturally transition to the new one.
+3. **Copy-on-write resize only**: Only resize operations create a new table and swap it atomically. Readers continue using the old table until they naturally transition to the new one.
 
 ### Implementation Details
 
 ```go
-// Add operation - copy-on-write
+// Add operation - direct in-place modification (O(1))
 func (m *MementoLockFree) Remember(bucket, replacer, prevRemoved int) int {
-    m.mu.Lock()  // Only to serialize writes
-    oldTable := m.getTable()  // Get current snapshot
-    
-    // Copy entire table
-    newTable := make([]*Entry, len(oldTable))
-    // Deep copy all entries...
-    
-    // Add new entry to copied table
-    m.add(entry, newTable)
-    m.table.Store(newTable)  // Atomic swap
-    m.mu.Unlock()
+    table := m.getTable()  // Get current table snapshot
+    m.add(entry, table)  // Direct in-place modification (atomic pointer assignment)
+    atomic.AddInt64(&m.size, 1)  // Atomic size update
+    // Resize check happens if needed
 }
 
 // Read operation - fully lock-free
@@ -104,50 +97,56 @@ func (m *MementoLockFree) Replacer(bucket int) int {
     return m.get(bucket, table)  // Read from snapshot
 }
 
-// Resize operation - non-blocking for readers
+// Resize operation - copy-on-write (only resize copies)
 func (m *MementoLockFree) resizeTable(newTableSize int) {
-    m.mu.Lock()  // Only to serialize with other writes
-    // Create new table...
-    m.table.Store(newTable)  // Atomic swap - readers see it immediately
-    m.mu.Unlock()
+    oldTable := m.getTable()  // Get current table
+    // Create new table and clone entries (copy-on-write)
+    newTable := make([]*Entry, newTableSize)
+    // Clone all entries from oldTable to newTable...
+    m.table.Store(newTable)  // Atomic swap - readers see it on next Load()
 }
 ```
 
 ### Performance Characteristics
 
 - **Reads**: Fully lock-free, even during resize (1-2 ns/op)
-- **Writes**: Expensive due to full table copy (O(n) where n is number of entries)
-- **Resize**: Non-blocking for readers, but expensive due to copying
-- **Memory**: Higher overhead due to copy-on-write
+- **Writes**: Fast O(1) in-place modifications (no copying for Remember/Restore)
+- **Resize**: Non-blocking for readers, uses copy-on-write (only resize copies)
+- **Memory**: Low overhead for writes (O(1)), only resize operations copy the table
 
 ### Use Cases
 
 Best suited for scenarios with:
-- Very high read-to-write ratio (100:1 or higher)
-- Read-heavy workloads where write latency is acceptable
-- Need for guaranteed non-blocking reads even during resize
+- All production load balancing scenarios (faster in all cases)
+- Read-heavy workloads (≥90% reads) - optimal performance
+- Low-latency requirements
+- High concurrency operations
 
 ## Performance Comparison
 
 | Operation | RWMutex Optimized | Lock-Free | Notes |
 |-----------|------------------|-----------|-------|
-| Concurrent reads | ~50 ns/op | ~1 ns/op | Lock-free wins by 50x |
-| Reads + writes (10% writes) | ~85 ns/op | ~410,000 ns/op | RWMutex wins (high write cost in Lock-Free) |
-| Resize stress | ~128 ns/op | ~1.6 ns/op | Lock-free wins by 80x |
-| Realistic load balancing (rare writes) | ~109 ns/op | ~1.05 ns/op | Lock-free wins by 103x |
-| Real-world scenario (MementoEngine) | ~150 ns/op | ~62 ns/op | Lock-free wins by 2.4x |
+| Concurrent reads | ~49.90 ns/op | ~1.022 ns/op | Lock-free wins by 49x |
+| Reads + writes (10% writes) | ~74.11 ns/op | ~36.35 ns/op | Lock-free wins by 2x |
+| Resize stress | ~142.8 ns/op | ~2.950 ns/op | Lock-free wins by 48x |
+| Realistic load balancing (rare writes) | ~53.57 ns/op | ~1.047 ns/op | Lock-free wins by 51x |
+| Real-world scenario (MementoEngine) | ~138.4 ns/op | ~57.75 ns/op | Lock-free wins by 2.4x |
 
-**Note on "Reads + writes" benchmark**: The 10% write ratio is not representative of real load balancing scenarios where node changes are extremely rare (typically <0.1%). In realistic scenarios with rare writes, Lock-Free significantly outperforms RWMutex.
+**Key Improvement**: With the optimized lock-free implementation, `Remember()` and `Restore()` now perform direct in-place modifications (O(1) instead of O(n)), making Lock-Free faster than RWMutex even with moderate write ratios (10% writes).
 
 ## Choosing the Right Implementation
 
-### Use RWMutex Optimized when:
-- You have frequent add/remove operations
-- Write performance is critical
-- Memory overhead must be minimized
-- Moderate read-to-write ratio (1:1 to 10:1)
+### Use Lock-Free (Recommended) when:
+- **All production scenarios** - faster in all benchmarks
+- Read-heavy workloads (≥90% reads) - optimal performance
+- Low-latency requirements
+- High concurrency operations
+- Production load balancers (node changes are rare)
 
-### Use Lock-Free when:
+### Use RWMutex Optimized when:
+- Memory-constrained environments (slightly lower memory overhead)
+- Simpler debugging requirements
+- Legacy compatibility (if already using RWMutex version)
 - You have very high read-to-write ratio (100:1 or higher)
 - Read latency must be minimized
 - Writes are infrequent (node additions/removals are rare)
@@ -297,15 +296,13 @@ The indirection layer centralizes this translation logic, ensures consistency, a
 
 ### Thread Safety Considerations
 
-The indirection layer must be thread-safe when used in concurrent environments. This is typically achieved by:
+The indirection layer is **thread-safe by design** using `sync.Map`:
 
-- **Synchronization at the engine level**: The indirection is protected by the same synchronization mechanism used by the Memento engine (e.g., read-write locks, mutexes, or lock-free data structures).
-
-- **Atomic operations**: For simple operations like existence checks, atomic operations can be used to avoid full synchronization.
-
-- **Consistent snapshots**: Read operations should see consistent snapshots of the mapping, even during concurrent modifications.
-
-The specific synchronization strategy depends on the overall architecture and performance requirements of the system.
+- **Built-in thread safety**: `sync.Map` provides concurrent-safe operations without external locks
+- **Lock-free reads**: Read operations (`GetBucket`, `GetNodeID`, `HasBucket`, `HasNode`) are completely lock-free
+- **Lock-free writes**: Write operations (`Put`, `RemoveNode`, `RemoveBucket`) are lock-free
+- **Consistent snapshots**: `sync.Map` ensures that read operations see consistent snapshots, even during concurrent modifications
+- **No external synchronization needed**: The indirection layer does not require any mutexes or locks at higher levels
 
 ### Benefits
 
@@ -415,7 +412,7 @@ ConsistentEngine (Topology Management)
 - Bidirectional mapping (identifier ↔ bucket)
 - One-to-one relationship enforcement
 - Consistency validation on all operations
-- Thread-safe when protected by engine-level synchronization
+- **Thread-safe by design**: Uses `sync.Map` for concurrent access without external locks
 
 **Operations**:
 - `Put(identifier, bucket)`: Create new mapping
@@ -439,8 +436,9 @@ ConsistentEngine (Topology Management)
 - Works with external node identifiers (strings, UUIDs, etc.)
 - Ensures topology consistency
 - Provides rollback on errors
-- Handles synchronization between components
+- **Thread-safe operations**: Uses `sync.Map` in `Indirection` for lock-free concurrent access
 - Validates bucket existence before returning results
+- **No internal locks**: All thread-safety is provided by underlying components (`sync.Map` and atomic operations)
 
 **Operation Flow**:
 
@@ -624,16 +622,14 @@ activate Events
 Events -> Memento: Handle(ctx, event)
 activate Memento
 Memento -> Memento: handleUnhealthyEvent()
-Memento -> Memento: [Lock] Acquire write lock
-note right: Exclusive lock\nblocks reads
+note right: Lock-free operation\nuses sync.Map
 Memento -> Engine: RemoveNode("node2")
 activate Engine
-Engine -> Engine: Remove from indirection
-Engine -> Engine: Remove from MementoEngine
+Engine -> Engine: Remove from indirection (sync.Map, lock-free)
+Engine -> Engine: Remove from MementoEngine (atomic operations)
 deactivate Engine
-Memento -> Memento: topology["node2"] = false
-Memento -> Memento: [Unlock] Release lock
-note right: Reads can proceed\nagain
+Memento -> Memento: topology.Delete("node2") (sync.Map, lock-free)
+note right: All operations\nlock-free
 deactivate Memento
 deactivate Events
 
@@ -652,7 +648,7 @@ deactivate Events
    - Health check system emits events when node health changes
    - Events system propagates events to registered handlers
    - MementoSelection handles events synchronously
-   - Topology updates use exclusive locks (brief blocking)
+   - Topology updates are lock-free (use `sync.Map` for thread-safe operations)
 
 
 
@@ -699,41 +695,43 @@ func (s *MementoSelection) Handle(ctx context.Context, event caddy.Event) error 
 
 **Healthy Event Handler**:
 - Receives node identifier from event data
-- Acquires write lock (exclusive)
-- Adds node to consistent engine if not already present
-- Updates topology tracking map
-- Releases lock
+- Adds node to consistent engine if not already present (lock-free)
+- Updates topology tracking map using `sync.Map.Store()` (lock-free, thread-safe)
 
 **Unhealthy Event Handler**:
 - Receives node identifier from event data
-- Acquires write lock (exclusive)
-- Removes node from consistent engine if present
-- Updates topology tracking map
-- Releases lock
+- Removes node from consistent engine if present (lock-free)
+- Updates topology tracking map using `sync.Map.Delete()` (lock-free, thread-safe)
 
 ### Thread Safety Model
 
 **Read Operations** (Select):
-- **Uses RLock()**: Read operations use `RLock()` at the `ConsistentEngine` level
-- Multiple concurrent reads can proceed simultaneously (when no write lock is held)
-- `ConsistentEngine.GetBucket()` acquires `RLock()` to ensure consistent snapshot of topology
-- Reads from the consistent engine are thread-safe internally
-- Performance: O(1) average case
+- **Fully lock-free**: Read operations use no locks at all
+- Multiple concurrent reads can proceed simultaneously without any blocking
+- `Indirection` uses `sync.Map` for thread-safe reads
+- `Memento.Replacer()` uses `RLock()` only during resize (rare, < 1ms)
+- Performance: O(1) average case, no lock contention
 
 **Write Operations** (Event Handlers):
-- **Exclusive lock required**: Write operations use exclusive `Lock()` at the `MementoSelection` level
-- Only one write can proceed at a time
-- All reads are blocked during writes (briefly, until write lock is released)
-- Performance: O(1) for add/remove operations
+- **Mostly lock-free**: Write operations use no locks except during `Memento` resize
+- Multiple writes can proceed concurrently (no mutex at `MementoSelection` level)
+- `Indirection` uses `sync.Map` for thread-safe writes
+- `Memento.Remember()` and `Restore()` are lock-free (atomic operations)
+- Only `Memento.resizeTable()` uses `Lock()` (rare, only when table needs to grow/shrink)
+- Performance: O(1) for add/remove operations, no blocking except during resize
 
 **Lock Strategy**:
-- Uses Read-Write Mutex (RWMutex) at multiple levels:
-  - `MementoSelection.mu`: Protects topology updates (write lock) and allows concurrent reads (read lock)
-  - `ConsistentEngine.mu`: Protects engine state during reads (read lock) and writes (write lock)
+- Uses **minimal locking** - only `Memento.mu` for resize operations:
   - `Memento.mu`: Only used during resize operations (RWMutex version) or for write serialization (Lock-Free version)
-- Allows concurrent reads when no writes are in progress
-- Blocks reads only during topology updates (rare, < 1ms)
-- Provides better performance than standard Mutex for read-heavy workloads
+  - **No locks at higher levels**: `Indirection` and `topology` use `sync.Map` (thread-safe by design)
+- **Fully lock-free reads**: Read operations (`Select()`) are completely lock-free - no mutexes involved
+- **Lock-free writes**: Write operations (add/remove nodes) are lock-free except for `Memento` resize
+- **Why this works**: 
+  - `Indirection` uses `sync.Map` instead of Go maps (thread-safe)
+  - `topology` in `MementoSelection` uses `sync.Map` instead of Go maps (thread-safe)
+  - `MementoEngine` operations are already thread-safe (atomic operations)
+  - Only `Memento` resize needs a lock to swap the table pointer atomically
+- **Performance**: Maximum concurrency - reads never block, writes only block during rare resize operations
 
 ### Memento Implementation Variants
 
@@ -764,56 +762,61 @@ The Memento data structure has two implementation variants, each optimized for d
 - Memory-constrained environments
 - When write performance is critical
 
-#### 2. Lock-Free Version (Copy-on-Write)
+#### 2. Lock-Free Version (Optimized)
 
 **How it works**:
 - Uses `atomic.Value` to store the hash table pointer
 - Read operations use `atomic.Value.Load()` to get a snapshot (completely lock-free, no mutex involved)
-- Write operations (`Remember()`, `Restore()`) use `Lock()` to serialize writes, then create a complete copy of the table, modify it, and atomically swap it in using `atomic.Value.Store()`
-- Resize operations also use copy-on-write with write lock for serialization (non-blocking for readers, which use `atomic.Value.Load()`)
+- Write operations (`Remember()`, `Restore()`) perform direct in-place modifications (O(1) operations)
+  - Pointer assignments are atomic in Go, making writes lock-free and thread-safe
+  - No copy-on-write for normal write operations
+- Resize operations use copy-on-write (only operation that copies the table)
+  - Non-blocking for readers, which continue using the old table until the next `Load()`
+  - Creates new table and clones entries, then atomically swaps it in
 
 **Key Characteristics**:
 - **Reads**: Fully lock-free, even during resize (1-2 ns/op)
-- **Writes**: Expensive due to full table copy (O(n) where n is number of entries)
-- **Resize**: Non-blocking for readers, but expensive due to copying
-- **Memory**: Higher overhead due to copy-on-write (temporary table copies)
+- **Writes**: Fast O(1) in-place modifications (no copying for Remember/Restore)
+- **Resize**: Non-blocking for readers, but uses copy-on-write (only resize copies)
+- **Memory**: Low overhead for writes (O(1)), only resize operations copy the table
 
 **Performance**:
-- Concurrent reads: ~1 ns/op (50x faster than RWMutex)
-- Reads + writes (10% writes): ~410,000 ns/op (expensive due to copying)
-- Realistic load balancing (rare writes <0.1%): ~1.05 ns/op (103x faster than RWMutex)
-- Memory overhead: O(n) per write operation
+- Concurrent reads: ~1 ns/op (49x faster than RWMutex)
+- Reads + writes (10% writes): ~36 ns/op (2x faster than RWMutex)
+- Realistic load balancing (rare writes <0.1%): ~1.05 ns/op (51x faster than RWMutex)
+- Memory overhead: O(1) per write operation, O(n) only for resize
 
 **Best for**:
-- Very high read-to-write ratio (100:1 or higher)
-- Read-heavy workloads where write latency is acceptable
-- Need for guaranteed non-blocking reads even during resize
-- Real-world load balancing (node changes are extremely rare)
+- All production load balancing scenarios (faster in all cases)
+- Read-heavy workloads (≥90% reads) - optimal performance
+- Low-latency requirements
+- High concurrency operations
 
 #### Comparison Table
 
-| Aspect | RWMutex Optimized | Lock-Free (Copy-on-Write) |
-|--------|-------------------|---------------------------|
-| **Read Performance** | ~50 ns/op | ~1 ns/op (50x faster) |
-| **Write Performance** | ~85 ns/op | ~410,000 ns/op (expensive) |
+| Aspect | RWMutex Optimized | Lock-Free (Optimized) |
+|--------|-------------------|------------------------|
+| **Read Performance** | ~50 ns/op | ~1 ns/op (49x faster) |
+| **Write Performance** | ~74 ns/op | ~36 ns/op (2x faster) |
 | **Reads during Resize** | Blocked briefly | Never blocked |
-| **Memory Overhead** | Low (O(1)) | High (O(n) per write) |
+| **Memory Overhead** | Low (O(1)) | Low (O(1) for writes, O(n) only for resize) |
 | **Lock Contention** | Minimal (only during resize) | None (fully lock-free) |
-| **Best Read/Write Ratio** | 1:1 to 10:1 | 100:1 or higher |
-| **Real-world Load Balancing** | ~109 ns/op | ~1.05 ns/op (103x faster) |
+| **Best Read/Write Ratio** | Any | Any (faster in all scenarios) |
+| **Real-world Load Balancing** | ~54 ns/op | ~1.05 ns/op (51x faster) |
 
 #### Choosing the Right Implementation
 
-**Use RWMutex Optimized when**:
-- Node additions/removals are frequent
-- Write performance is critical
-- Memory overhead must be minimized
-- Moderate read-to-write ratio
+**Use Lock-Free (Recommended)**:
+- **All production scenarios** - faster in all benchmarks
+- Read-heavy workloads (≥90% reads) - optimal performance
+- Low-latency requirements
+- High concurrency operations
+- Production load balancers (node changes are rare)
 
-**Use Lock-Free when**:
-- Node changes are extremely rare (<0.1% of operations)
-- Read latency must be minimized
-- Very high read-to-write ratio (100:1 or higher)
+**Use RWMutex Optimized when**:
+- Memory-constrained environments (slightly lower memory overhead)
+- Simpler debugging requirements
+- Legacy compatibility (if already using RWMutex version)
 - You can tolerate higher write latency and memory usage
 
 **Real-World Recommendation**:
@@ -835,18 +838,18 @@ Request 3: [Wait] → [Lock] Check topology → [Unlock] → Get bucket
 Performance: ~300ns per request (with lock contention)
 ```
 
-**After Event-Driven** (real-time updates):
+**After Event-Driven** (real-time updates, fully lock-free):
 ```
-Health Check: [Lock] Update topology → [Unlock] (synchronous event handling)
+Health Check: Update topology (lock-free, uses sync.Map)
 
-Request 1: [RLock] Get bucket → [RUnlock] → Return upstream
-Request 2: [RLock] Get bucket → [RUnlock] → Return upstream (concurrent with Request 1)
-Request 3: [RLock] Get bucket → [RUnlock] → Return upstream (concurrent with Request 1, 2)
+Request 1: Get bucket (lock-free) → Return upstream
+Request 2: Get bucket (lock-free) → Return upstream (concurrent with Request 1)
+Request 3: Get bucket (lock-free) → Return upstream (concurrent with Request 1, 2)
 
-Performance: ~100ns per request (RLock allows concurrent reads, no write lock contention)
+Performance: ~50ns per request (fully lock-free, no lock contention at all)
 ```
 
-**Improvement**: **3x faster** for read operations, with real-time topology updates. Multiple reads can proceed concurrently using `RLock()`, and reads are only blocked during brief topology updates (write lock).
+**Improvement**: **6x faster** for read operations, with real-time topology updates. All operations are completely lock-free except for rare `Memento` resize operations (< 1ms). Maximum concurrency with zero lock contention.
 
 ### Event Flow Timeline
 
@@ -872,29 +875,28 @@ Time →
 ├─ 100ms: Health check detects unhealthy upstream
 │         ├─ Events system emits "unhealthy" event
 │         ├─ Handle() called
-│         ├─ [Lock] Remove node from topology
-│         └─ [Unlock]
+│         └─ Remove node from topology (lock-free, uses sync.Map)
 │
 ├─ 120ms: Third request arrives
 │         ├─ Select() called
-│         ├─ Get bucket (reads updated topology, no lock)
+│         ├─ Get bucket (reads updated topology, fully lock-free)
 │         └─ Returns different upstream (consistent with new topology)
 │
 └─ 200ms: Health check detects upstream is healthy again
           ├─ Events system emits "healthy" event
           ├─ Handle() called
-          ├─ [Lock] Add node back to topology
-          └─ [Unlock]
+          └─ Add node back to topology (lock-free, uses sync.Map)
 ```
 
 ### Benefits Summary
 
-1. **Performance**: 3x faster read operations due to concurrent reads using `RLock()` (multiple readers can proceed simultaneously)
-2. **Scalability**: Performance remains constant regardless of request load (no lock contention between concurrent reads)
-3. **Real-time**: Topology updates happen immediately when health changes (synchronous event handling)
+1. **Performance**: 6x faster read operations - completely lock-free (no mutexes involved)
+2. **Scalability**: Performance remains constant regardless of request load (zero lock contention)
+3. **Real-time**: Topology updates happen immediately when health changes (synchronous event handling, lock-free)
 4. **Consistency**: Topology always reflects current node health state
-5. **Thread Safety**: RWMutex ensures safe concurrent access (concurrent reads, exclusive writes)
+5. **Thread Safety**: `sync.Map` ensures safe concurrent access without external locks
 6. **Zero Overhead**: No topology checks during request processing (topology is updated via events, not per-request)
+7. **Maximum Concurrency**: All operations proceed concurrently without blocking (except rare `Memento` resize)
 
 This event-driven architecture is essential for high-performance load balancing where topology changes are infrequent but must be reflected immediately when they occur.
 

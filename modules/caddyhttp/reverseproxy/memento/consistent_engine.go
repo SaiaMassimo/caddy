@@ -44,6 +44,15 @@ func NewConsistentEngine() *ConsistentEngine {
 	}
 }
 
+// NewConsistentEngineWithType creates a new consistent engine with MementoEngine
+// using the specified implementation type (lockFree=true for Lock-Free, false for RWMutex)
+func NewConsistentEngineWithType(lockFree bool) *ConsistentEngine {
+	return &ConsistentEngine{
+		engine:      NewMementoEngineWithType(0, lockFree),
+		indirection: NewIndirection(0),
+	}
+}
+
 // GetBucket returns the bucket for a key.
 // It ensures the returned bucket exists in the indirection.
 // If the bucket returned by MementoEngine doesn't exist in the indirection,

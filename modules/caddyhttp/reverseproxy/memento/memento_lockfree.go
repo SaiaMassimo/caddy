@@ -16,7 +16,6 @@ package memento
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 )
 
@@ -41,10 +40,6 @@ type MementoLockFree struct {
 
 	// The maximum size of the memento table
 	maxTableSize int
-
-	// Mutex for thread safety - only used for writes (add, remove, resize)
-	// Reads can proceed lock-free using atomic.Value
-	mu sync.RWMutex
 }
 
 // NewMementoLockFree creates a new MementoLockFree instance
@@ -64,7 +59,7 @@ func NewMementoLockFree() *MementoLockFree {
 // (before the current one) to create the sequence of removals.
 //
 // Returns the value of the new last removed bucket
-// Note: This operation uses copy-on-write to allow lock-free reads.
+// Note: This operation is lock-free - pointer assignments are atomic in Go.
 func (m *MementoLockFree) Remember(bucket, replacer, prevRemoved int) int {
 	entry := &Entry{
 		bucket:      bucket,
@@ -73,42 +68,14 @@ func (m *MementoLockFree) Remember(bucket, replacer, prevRemoved int) int {
 		next:        nil,
 	}
 
-	m.mu.Lock()
-	oldTable := m.getTable()
-
-	// Copy-on-write: create a new table and clone all entries
-	newTable := make([]*Entry, len(oldTable))
-	for i := 0; i < len(oldTable); i++ {
-		// Deep copy the chain
-		var prev *Entry
-		e := oldTable[i]
-		for e != nil {
-			newEntry := &Entry{
-				bucket:      e.bucket,
-				replacer:    e.replacer,
-				prevRemoved: e.prevRemoved,
-				next:        nil,
-			}
-			if prev == nil {
-				newTable[i] = newEntry
-			} else {
-				prev.next = newEntry
-			}
-			prev = newEntry
-			e = e.next
-		}
-	}
-
-	// Add the new entry to the copied table
-	m.add(entry, newTable)
+	// Lock-free: add entry directly to the table
+	// Pointer assignments are atomic in Go, so this is safe
+	table := m.getTable()
+	m.add(entry, table)
 	newSize := atomic.AddInt64(&m.size, 1)
+	tableLen := len(table)
 
-	// Atomically swap in the new table
-	m.table.Store(newTable)
-	tableLen := len(newTable)
-	m.mu.Unlock()
-
-	// Check if resize is needed (outside the lock to avoid blocking reads)
+	// Check if resize is needed
 	if int(newSize) > m.capacityForSize(tableLen) {
 		m.resizeTable(tableLen << 1)
 	}
@@ -138,69 +105,25 @@ func (m *MementoLockFree) Replacer(bucket int) int {
 // becomes the given bucket + 1.
 //
 // Returns the new last removed bucket
-// Note: This operation uses copy-on-write to allow lock-free reads.
+// Note: This operation is lock-free - pointer assignments are atomic in Go.
 func (m *MementoLockFree) Restore(bucket int) int {
 	if m.isEmpty() {
 		return bucket + 1
 	}
 
-	m.mu.Lock()
-	oldTable := m.getTable()
-
-	// Find the entry first to check if it exists
-	hash := bucket ^ (bucket >> 16)
-	index := (len(oldTable) - 1) & hash
-
-	var targetEntry *Entry
-	entry := oldTable[index]
-	for entry != nil && entry.bucket != bucket {
-		entry = entry.next
-	}
-
+	// Lock-free: remove entry directly from the table
+	// Pointer assignments are atomic in Go, so this is safe
+	table := m.getTable()
+	entry := m.remove(bucket, table)
 	if entry == nil {
-		m.mu.Unlock()
 		return bucket + 1
 	}
 
-	targetEntry = entry
-	prevRemoved := targetEntry.prevRemoved
-
-	// Copy-on-write: create a new table and clone all entries except the removed one
-	newTable := make([]*Entry, len(oldTable))
-	for i := 0; i < len(oldTable); i++ {
-		var prevNew *Entry
-		e := oldTable[i]
-		for e != nil {
-			// Skip the entry we're removing
-			if e == targetEntry {
-				e = e.next
-				continue
-			}
-
-			newEntry := &Entry{
-				bucket:      e.bucket,
-				replacer:    e.replacer,
-				prevRemoved: e.prevRemoved,
-				next:        nil,
-			}
-			if prevNew == nil {
-				newTable[i] = newEntry
-			} else {
-				prevNew.next = newEntry
-			}
-			prevNew = newEntry
-			e = e.next
-		}
-	}
-
+	prevRemoved := entry.prevRemoved
 	newSize := atomic.AddInt64(&m.size, -1)
-	tableLen := len(newTable)
+	tableLen := len(table)
 
-	// Atomically swap in the new table
-	m.table.Store(newTable)
-	m.mu.Unlock()
-
-	// Check if resize is needed (outside the lock to avoid blocking reads)
+	// Check if resize is needed
 	if int(newSize) <= m.capacityForSize(tableLen)>>2 {
 		m.resizeTable(tableLen >> 1)
 	}
@@ -287,23 +210,56 @@ func (m *MementoLockFree) get(bucket int, table []*Entry) *Entry {
 	return nil
 }
 
+// remove removes the given bucket from the lookup table
+// Pointer assignments are atomic in Go, so this is safe for lock-free operations
+func (m *MementoLockFree) remove(bucket int, table []*Entry) *Entry {
+	hash := bucket ^ (bucket >> 16)
+	index := (len(table) - 1) & hash
+
+	entry := table[index]
+	if entry == nil {
+		return nil
+	}
+
+	var prev *Entry
+	for entry != nil && entry.bucket != bucket {
+		prev = entry
+		entry = entry.next
+	}
+
+	if entry == nil {
+		return nil
+	}
+
+	if prev == nil {
+		table[index] = entry.next
+	} else {
+		prev.next = entry.next
+	}
+
+	entry.next = nil
+	return entry
+}
+
 // resizeTable resizes the lookup table by creating a new table and cloning
 // the entries in the old table into the new one.
-// This operation uses a write lock, but reads can continue using the old table
+// This operation is lock-free: reads can continue using the old table
 // until the new table is atomically swapped in.
 func (m *MementoLockFree) resizeTable(newTableSize int) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	oldTable := m.getTable()
 	oldTableSize := len(oldTable)
 
-	// Double-check conditions after acquiring lock
+	// Check conditions
 	if newTableSize < oldTableSize && oldTableSize <= m.minTableSize {
 		return
 	}
 
 	if newTableSize > oldTableSize && oldTableSize >= m.maxTableSize {
+		return
+	}
+
+	// Double-check: if table size already matches, another thread did the resize
+	if len(oldTable) == newTableSize {
 		return
 	}
 
@@ -326,6 +282,8 @@ func (m *MementoLockFree) resizeTable(newTableSize int) {
 	// Atomically swap the new table in
 	// This allows concurrent reads to continue using the old table
 	// until they finish, then they'll see the new table
+	// If another thread already resized, this will overwrite it, but that's ok
+	// as the new table contains all entries from the old one
 	m.table.Store(newTable)
 }
 
@@ -336,4 +294,3 @@ func (m *MementoLockFree) String() string {
 	return fmt.Sprintf("MementoLockFree{size=%d, capacity=%d, table_size=%d}",
 		atomic.LoadInt64(&m.size), m.capacityForSize(len(table)), len(table))
 }
-

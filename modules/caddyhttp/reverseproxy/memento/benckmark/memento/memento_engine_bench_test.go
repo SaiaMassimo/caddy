@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package memento
+package mementobenchmark
 
 import (
 	"math/rand"
 	"testing"
+
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
 
 // BenchmarkRemoveBucket measures the performance of RemoveBucket operations
@@ -24,7 +26,7 @@ func BenchmarkRemoveBucket(b *testing.B) {
 	const initialNodes = 1000
 
 	b.Run("RemoveBucket_Sequential", func(b *testing.B) {
-		engine := NewMementoEngine(initialNodes)
+		engine := memento.NewMementoEngine(initialNodes)
 		b.ResetTimer()
 
 		for i := 0; i < b.N; i++ {
@@ -39,7 +41,7 @@ func BenchmarkRemoveBucket(b *testing.B) {
 	})
 
 	b.Run("RemoveBucket_WithLookups", func(b *testing.B) {
-		engine := NewMementoEngine(initialNodes)
+		engine := memento.NewMementoEngine(initialNodes)
 		const numKeys = 1000
 		keys := make([]string, numKeys)
 		for i := 0; i < numKeys; i++ {
@@ -71,7 +73,7 @@ func BenchmarkRemoveNode(b *testing.B) {
 	const initialNodes = 1000
 
 	b.Run("RemoveNode_ConsistentEngine", func(b *testing.B) {
-		engine := NewConsistentEngine()
+		engine := memento.NewConsistentEngine()
 
 		// Populate with nodes
 		for i := 0; i < initialNodes; i++ {
@@ -87,7 +89,7 @@ func BenchmarkRemoveNode(b *testing.B) {
 	})
 
 	b.Run("RemoveNode_WithLookups", func(b *testing.B) {
-		engine := NewConsistentEngine()
+		engine := memento.NewConsistentEngine()
 
 		// Populate with nodes
 		for i := 0; i < initialNodes; i++ {
@@ -117,15 +119,15 @@ func BenchmarkRemoveNode(b *testing.B) {
 
 // BenchmarkMementoSizeAccess measures the overhead of Size() calls
 func BenchmarkMementoSizeAccess(b *testing.B) {
-	memento := NewMemento()
+	m := memento.NewMemento()
 
 	// Populate with some removals
 	for i := 0; i < 100; i++ {
-		memento.Remember(i, 100-i, -1)
+		m.Remember(i, 100-i, -1)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = memento.Size()
+		_ = m.Size()
 	}
 }

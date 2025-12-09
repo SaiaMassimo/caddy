@@ -16,6 +16,7 @@ package memento
 
 import (
 	"fmt"
+	"sync"
 )
 
 // Indirection represents a one-to-one mapping between a node ID (string)
@@ -27,22 +28,22 @@ import (
 // - The bucket must be non-negative
 // - Two nodes cannot be mapped to the same bucket
 // - Two buckets cannot be mapped to the same node
+//
+// Thread-safe: Uses sync.Map for concurrent access without external locks.
 type Indirection struct {
-	// Maps each node ID to the related bucket
-	nodeToBucket map[string]int
+	// Maps each node ID to the related bucket (thread-safe)
+	nodeToBucket sync.Map // map[string]int
 
-	// Maps each bucket to the related node ID
-	bucketToNode map[int]string
+	// Maps each bucket to the related node ID (thread-safe)
+	bucketToNode sync.Map // map[int]string
 }
 
 // NewIndirection creates a new indirection with the given initial capacity
+// Note: initialCapacity is ignored when using sync.Map (it doesn't support pre-allocation)
 func NewIndirection(initialCapacity int) *Indirection {
-	if initialCapacity < 0 {
-		initialCapacity = 0
-	}
 	return &Indirection{
-		nodeToBucket: make(map[string]int, initialCapacity),
-		bucketToNode: make(map[int]string, initialCapacity),
+		nodeToBucket: sync.Map{},
+		bucketToNode: sync.Map{},
 	}
 }
 
@@ -61,17 +62,18 @@ func (ind *Indirection) Put(nodeID string, bucket int) error {
 	}
 
 	// Check for duplicate node
-	if existingBucket, exists := ind.nodeToBucket[nodeID]; exists {
+	if existingBucket, exists := ind.nodeToBucket.Load(nodeID); exists {
 		return fmt.Errorf("duplicated node %s (already mapped to bucket %d)", nodeID, existingBucket)
 	}
 
 	// Check for duplicate bucket
-	if existingNode, exists := ind.bucketToNode[bucket]; exists {
+	if existingNode, exists := ind.bucketToNode.Load(bucket); exists {
 		return fmt.Errorf("duplicated bucket %d (already mapped to node %s)", bucket, existingNode)
 	}
 
-	ind.nodeToBucket[nodeID] = bucket
-	ind.bucketToNode[bucket] = nodeID
+	// Store both mappings atomically
+	ind.nodeToBucket.Store(nodeID, bucket)
+	ind.bucketToNode.Store(bucket, nodeID)
 	return nil
 }
 
@@ -82,12 +84,12 @@ func (ind *Indirection) GetBucket(nodeID string) (int, error) {
 		return -1, fmt.Errorf("node ID cannot be empty")
 	}
 
-	bucket, exists := ind.nodeToBucket[nodeID]
+	bucket, exists := ind.nodeToBucket.Load(nodeID)
 	if !exists {
 		return -1, fmt.Errorf("node %s is not mapped to any bucket", nodeID)
 	}
 
-	return bucket, nil
+	return bucket.(int), nil
 }
 
 // GetNodeID returns the node ID mapped to the given bucket.
@@ -97,23 +99,23 @@ func (ind *Indirection) GetNodeID(bucket int) (string, error) {
 		return "", fmt.Errorf("bucket must be non-negative, got %d", bucket)
 	}
 
-	nodeID, exists := ind.bucketToNode[bucket]
+	nodeID, exists := ind.bucketToNode.Load(bucket)
 	if !exists {
 		return "", fmt.Errorf("bucket %d is not mapped to any node", bucket)
 	}
 
-	return nodeID, nil
+	return nodeID.(string), nil
 }
 
 // HasBucket checks if the given bucket exists in the indirection
 func (ind *Indirection) HasBucket(bucket int) bool {
-	_, exists := ind.bucketToNode[bucket]
+	_, exists := ind.bucketToNode.Load(bucket)
 	return exists
 }
 
 // HasNode checks if the given node ID exists in the indirection
 func (ind *Indirection) HasNode(nodeID string) bool {
-	_, exists := ind.nodeToBucket[nodeID]
+	_, exists := ind.nodeToBucket.Load(nodeID)
 	return exists
 }
 
@@ -125,8 +127,9 @@ func (ind *Indirection) RemoveNode(nodeID string) (int, error) {
 		return -1, err
 	}
 
-	delete(ind.nodeToBucket, nodeID)
-	delete(ind.bucketToNode, bucket)
+	// Remove both mappings atomically
+	ind.nodeToBucket.Delete(nodeID)
+	ind.bucketToNode.Delete(bucket)
 	return bucket, nil
 }
 
@@ -138,30 +141,39 @@ func (ind *Indirection) RemoveBucket(bucket int) (string, error) {
 		return "", err
 	}
 
-	delete(ind.nodeToBucket, nodeID)
-	delete(ind.bucketToNode, bucket)
+	// Remove both mappings atomically
+	ind.nodeToBucket.Delete(nodeID)
+	ind.bucketToNode.Delete(bucket)
 	return nodeID, nil
 }
 
 // Size returns the number of mappings in the indirection
+// Note: This is approximate for sync.Map (it may not be exact under concurrent modifications)
 func (ind *Indirection) Size() int {
-	return len(ind.nodeToBucket)
+	count := 0
+	ind.nodeToBucket.Range(func(_, _ interface{}) bool {
+		count++
+		return true
+	})
+	return count
 }
 
 // GetAllBuckets returns all buckets currently in the indirection
 func (ind *Indirection) GetAllBuckets() []int {
-	buckets := make([]int, 0, len(ind.bucketToNode))
-	for bucket := range ind.bucketToNode {
-		buckets = append(buckets, bucket)
-	}
+	buckets := make([]int, 0)
+	ind.bucketToNode.Range(func(key, _ interface{}) bool {
+		buckets = append(buckets, key.(int))
+		return true
+	})
 	return buckets
 }
 
 // GetAllNodeIDs returns all node IDs currently in the indirection
 func (ind *Indirection) GetAllNodeIDs() []string {
-	nodeIDs := make([]string, 0, len(ind.nodeToBucket))
-	for nodeID := range ind.nodeToBucket {
-		nodeIDs = append(nodeIDs, nodeID)
-	}
+	nodeIDs := make([]string, 0)
+	ind.nodeToBucket.Range(func(key, _ interface{}) bool {
+		nodeIDs = append(nodeIDs, key.(string))
+		return true
+	})
 	return nodeIDs
 }

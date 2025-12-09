@@ -177,6 +177,176 @@ func TestMementoConcurrent(t *testing.T) {
 	<-done
 }
 
+// TestMementoLockFree tests the lock-free version
+func TestMementoLockFree(t *testing.T) {
+	memento := NewMementoLockFree()
+
+	// Test initial state
+	if !memento.IsEmpty() {
+		t.Error("MementoLockFree should be empty initially")
+	}
+
+	if memento.Size() != 0 {
+		t.Errorf("Expected size 0, got %d", memento.Size())
+	}
+}
+
+// TestMementoLockFreeRemember tests Remember for lock-free version
+func TestMementoLockFreeRemember(t *testing.T) {
+	memento := NewMementoLockFree()
+
+	// Remember a removal
+	lastRemoved := memento.Remember(5, 3, -1)
+	if lastRemoved != 5 {
+		t.Errorf("Expected lastRemoved 5, got %d", lastRemoved)
+	}
+
+	if memento.IsEmpty() {
+		t.Error("MementoLockFree should not be empty after remembering")
+	}
+
+	if memento.Size() != 1 {
+		t.Errorf("Expected size 1, got %d", memento.Size())
+	}
+}
+
+// TestMementoLockFreeReplacer tests Replacer for lock-free version
+func TestMementoLockFreeReplacer(t *testing.T) {
+	memento := NewMementoLockFree()
+
+	// Remember a removal
+	memento.Remember(5, 3, -1)
+
+	// Test replacer
+	replacer := memento.Replacer(5)
+	if replacer != 3 {
+		t.Errorf("Expected replacer 3, got %d", replacer)
+	}
+
+	// Test non-existent bucket
+	replacer = memento.Replacer(10)
+	if replacer != -1 {
+		t.Errorf("Expected replacer -1 for non-existent bucket, got %d", replacer)
+	}
+}
+
+// TestMementoLockFreeRestore tests Restore for lock-free version
+func TestMementoLockFreeRestore(t *testing.T) {
+	memento := NewMementoLockFree()
+
+	// Remember a removal
+	memento.Remember(5, 3, -1)
+
+	// Restore the bucket
+	prevRemoved := memento.Restore(5)
+	if prevRemoved != -1 {
+		t.Errorf("Expected prevRemoved -1, got %d", prevRemoved)
+	}
+
+	if !memento.IsEmpty() {
+		t.Error("MementoLockFree should be empty after restore")
+	}
+
+	if memento.Size() != 0 {
+		t.Errorf("Expected size 0, got %d", memento.Size())
+	}
+}
+
+// TestMementoLockFreeSequence tests sequence of operations for lock-free version
+func TestMementoLockFreeSequence(t *testing.T) {
+	memento := NewMementoLockFree()
+
+	// Remember multiple removals in sequence
+	lastRemoved := memento.Remember(5, 3, -1)
+	if lastRemoved != 5 {
+		t.Errorf("Expected lastRemoved 5, got %d", lastRemoved)
+	}
+
+	lastRemoved = memento.Remember(7, 2, 5)
+	if lastRemoved != 7 {
+		t.Errorf("Expected lastRemoved 7, got %d", lastRemoved)
+	}
+
+	lastRemoved = memento.Remember(2, 1, 7)
+	if lastRemoved != 2 {
+		t.Errorf("Expected lastRemoved 2, got %d", lastRemoved)
+	}
+
+	if memento.Size() != 3 {
+		t.Errorf("Expected size 3, got %d", memento.Size())
+	}
+
+	// Test replacers
+	if memento.Replacer(5) != 3 {
+		t.Error("Expected replacer 3 for bucket 5")
+	}
+	if memento.Replacer(7) != 2 {
+		t.Error("Expected replacer 2 for bucket 7")
+	}
+	if memento.Replacer(2) != 1 {
+		t.Error("Expected replacer 1 for bucket 2")
+	}
+
+	// Restore in reverse order
+	prevRemoved := memento.Restore(2)
+	if prevRemoved != 7 {
+		t.Errorf("Expected prevRemoved 7, got %d", prevRemoved)
+	}
+
+	prevRemoved = memento.Restore(7)
+	if prevRemoved != 5 {
+		t.Errorf("Expected prevRemoved 5, got %d", prevRemoved)
+	}
+
+	prevRemoved = memento.Restore(5)
+	if prevRemoved != -1 {
+		t.Errorf("Expected prevRemoved -1, got %d", prevRemoved)
+	}
+
+	if !memento.IsEmpty() {
+		t.Error("MementoLockFree should be empty after all restores")
+	}
+}
+
+// TestMementoLockFreeConcurrent tests concurrent access for lock-free version
+func TestMementoLockFreeConcurrent(t *testing.T) {
+	memento := NewMementoLockFree()
+
+	// Test concurrent access with more goroutines to stress test
+	done := make(chan bool, 10)
+
+	// Multiple goroutines: Add removals
+	for g := 0; g < 5; g++ {
+		go func(goroutineID int) {
+			for i := 0; i < 100; i++ {
+				bucket := goroutineID*100 + i
+				memento.Remember(bucket, bucket-1, -1)
+			}
+			done <- true
+		}(g)
+	}
+
+	// Multiple goroutines: Check replacers
+	for g := 0; g < 5; g++ {
+		go func(goroutineID int) {
+			for i := 0; i < 100; i++ {
+				bucket := goroutineID*100 + i
+				replacer := memento.Replacer(bucket)
+				// Replacer might be -1 if not yet added, or bucket-1 if added
+				if replacer != -1 && replacer != bucket-1 {
+					t.Errorf("Unexpected replacer for bucket %d: %d", bucket, replacer)
+				}
+			}
+			done <- true
+		}(g)
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+}
+
 func TestConsistentEngine(t *testing.T) {
 	// Create a consistent engine
 	consistentEngine := NewConsistentEngine()
@@ -280,6 +450,106 @@ func TestConsistentEngineConsistency(t *testing.T) {
 
 	if bucket3 != bucket4 {
 		t.Errorf("Inconsistent mapping after removal: %d vs %d", bucket3, bucket4)
+	}
+}
+
+// TestConsistentEngineLoadBalancing verifica il bilanciamento del carico
+// con ConsistentEngine usando le stesse statistiche rigorose
+// (CV <= CV_atteso+20%) degli altri test
+func TestConsistentEngineLoadBalancing(t *testing.T) {
+	const N = 50     // numero di nodi
+	const K = 100000 // numero di chiavi
+
+	consistentEngine := NewConsistentEngine()
+
+	// Aggiungi i nodi
+	for i := 0; i < N; i++ {
+		nodeID := fmt.Sprintf("node%d", i)
+		if err := consistentEngine.AddNode(nodeID); err != nil {
+			t.Fatalf("Failed to add node %s: %v", nodeID, err)
+		}
+	}
+
+	if consistentEngine.Size() != N {
+		t.Fatalf("Expected engine size %d, got %d", N, consistentEngine.Size())
+	}
+
+	// Test distribution across nodes
+	// ConsistentEngine.GetBucket restituisce un bucket index che viene
+	// mappato a un node ID tramite GetNodeID
+	nodeCounts := make(map[string]int, N)
+
+	// Distribuisci le chiavi
+	for i := 0; i < K; i++ {
+		key := fmt.Sprintf("consistent-key-%d", i)
+		bucket := consistentEngine.GetBucket(key)
+		nodeID := consistentEngine.GetNodeID(bucket)
+		if nodeID == "" {
+			t.Fatalf("Invalid bucket %d for key %s (no node ID found)", bucket, key)
+		}
+		nodeCounts[nodeID]++
+	}
+
+	// Verifica che tutti i nodi siano stati usati
+	if len(nodeCounts) != N {
+		t.Errorf("Expected %d nodes to be used, got %d", N, len(nodeCounts))
+	}
+
+	// Converti i conteggi in un array per i calcoli statistici
+	// Ordiniamo per node ID per garantire ordine deterministico
+	counts := make([]int, N)
+	for i := 0; i < N; i++ {
+		nodeID := fmt.Sprintf("node%d", i)
+		counts[i] = nodeCounts[nodeID]
+	}
+
+	// Calcolo statistiche teoriche
+	// Atteso per nodo: μ = K / N
+	mu := float64(K) / float64(N)
+
+	// Deviazione standard teorica: σ = √(K · (1/N) · (1 − 1/N))
+	p := 1.0 / float64(N)
+	sigma := math.Sqrt(float64(K) * p * (1.0 - p))
+
+	// Calcolo statistiche osservate
+	// Media osservata
+	mean := 0.0
+	for _, count := range counts {
+		mean += float64(count)
+	}
+	mean /= float64(N)
+
+	// Deviazione standard osservata
+	variance := 0.0
+	for _, count := range counts {
+		diff := float64(count) - mean
+		variance += diff * diff
+	}
+	variance /= float64(N)
+	stdDev := math.Sqrt(variance)
+
+	// Coefficiente di variazione osservato: CV = std(node)/mean(node)
+	CV := stdDev / mean
+
+	// Coefficiente di variazione atteso: CV_atteso ≈ √[(N−1)/K]
+	CV_atteso := math.Sqrt((float64(N) - 1.0) / float64(K))
+
+	// Verifica: CV <= CV_atteso + 20%
+	CV_max := CV_atteso * 1.2
+
+	t.Logf("Distribution Test (N=%d, K=%d):", N, K)
+	t.Logf("  Expected per node (μ): %.2f", mu)
+	t.Logf("  Expected std dev (σ): %.2f", sigma)
+	t.Logf("  Observed mean: %.2f", mean)
+	t.Logf("  Observed std dev: %.2f", stdDev)
+	t.Logf("  Coefficient of Variation (CV): %.6f", CV)
+	t.Logf("  Expected CV: %.6f", CV_atteso)
+	t.Logf("  Max allowed CV (CV_atteso + 20%%): %.6f", CV_max)
+
+	// Verifica che il CV sia entro i limiti
+	if CV > CV_max {
+		t.Errorf("Coefficient of Variation too high: %.6f > %.6f (expected CV: %.6f, margin: +20%%)",
+			CV, CV_max, CV_atteso)
 	}
 }
 
@@ -544,6 +814,35 @@ func setupMementoEngineTest() (*MementoEngine, map[string]int) {
 
 // getBucketWithMemento è una helper per ottenere il bucket corretto usando Memento
 func getBucketWithMemento(engine *BinomialEngine, memento *Memento, key string) int {
+	bucket := engine.GetBucket(key)
+	replacer := memento.Replacer(bucket)
+	if replacer != -1 {
+		return replacer
+	}
+	return bucket
+}
+
+// setupMementoLockFreeTest crea un setup comune per i test di MementoLockFree
+func setupMementoLockFreeTest() (*BinomialEngine, *MementoLockFree, map[string]int) {
+	const numNodes = 50
+	const numKeys = 100000
+
+	engine := NewBinomialEngine(numNodes)
+	memento := NewMementoLockFree()
+	keyToBucketBefore := make(map[string]int, numKeys)
+
+	// Mappa tutte le chiavi prima della rimozione
+	for i := 0; i < numKeys; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		bucket := engine.GetBucket(key)
+		keyToBucketBefore[key] = bucket
+	}
+
+	return engine, memento, keyToBucketBefore
+}
+
+// getBucketWithMementoLockFree è una helper per ottenere il bucket corretto usando MementoLockFree
+func getBucketWithMementoLockFree(engine *BinomialEngine, memento *MementoLockFree, key string) int {
 	bucket := engine.GetBucket(key)
 	replacer := memento.Replacer(bucket)
 	if replacer != -1 {
@@ -1010,6 +1309,271 @@ func TestMementoLoadBalancing(t *testing.T) {
 		t.Errorf("Expected at least %d keys moved, got %d",
 			keysOnRemovedNode, keysMoved)
 	}
+}
+
+// TestConsistentEngineLoadBalancingLockFree verifica il bilanciamento del carico
+// con ConsistentEngine usando la versione lock-free (CV <= CV_atteso+20%)
+func TestConsistentEngineLoadBalancingLockFree(t *testing.T) {
+	const N = 50     // numero di nodi
+	const K = 100000 // numero di chiavi
+
+	consistentEngine := NewConsistentEngineWithType(true) // lock-free version
+
+	// Aggiungi i nodi
+	for i := 0; i < N; i++ {
+		nodeID := fmt.Sprintf("node%d", i)
+		if err := consistentEngine.AddNode(nodeID); err != nil {
+			t.Fatalf("Failed to add node %s: %v", nodeID, err)
+		}
+	}
+
+	if consistentEngine.Size() != N {
+		t.Fatalf("Expected engine size %d, got %d", N, consistentEngine.Size())
+	}
+
+	// Test distribution across nodes
+	nodeCounts := make(map[string]int, N)
+
+	// Distribuisci le chiavi
+	for i := 0; i < K; i++ {
+		key := fmt.Sprintf("consistent-key-%d", i)
+		bucket := consistentEngine.GetBucket(key)
+		nodeID := consistentEngine.GetNodeID(bucket)
+		if nodeID == "" {
+			t.Fatalf("Invalid bucket %d for key %s (no node ID found)", bucket, key)
+		}
+		nodeCounts[nodeID]++
+	}
+
+	// Verifica che tutti i nodi siano stati usati
+	if len(nodeCounts) != N {
+		t.Errorf("Expected %d nodes to be used, got %d", N, len(nodeCounts))
+	}
+
+	// Converti i conteggi in un array per i calcoli statistici
+	counts := make([]int, N)
+	for i := 0; i < N; i++ {
+		nodeID := fmt.Sprintf("node%d", i)
+		counts[i] = nodeCounts[nodeID]
+	}
+
+	// Calcolo statistiche teoriche
+	mu := float64(K) / float64(N)
+	p := 1.0 / float64(N)
+	sigma := math.Sqrt(float64(K) * p * (1.0 - p))
+
+	// Calcolo statistiche osservate
+	mean := 0.0
+	for _, count := range counts {
+		mean += float64(count)
+	}
+	mean /= float64(N)
+
+	variance := 0.0
+	for _, count := range counts {
+		diff := float64(count) - mean
+		variance += diff * diff
+	}
+	variance /= float64(N)
+	stdDev := math.Sqrt(variance)
+
+	CV := stdDev / mean
+	CV_atteso := math.Sqrt((float64(N) - 1.0) / float64(K))
+	CV_max := CV_atteso * 1.2
+
+	t.Logf("Distribution Test (N=%d, K=%d) - Lock-Free Version:", N, K)
+	t.Logf("  Expected per node (μ): %.2f", mu)
+	t.Logf("  Expected std dev (σ): %.2f", sigma)
+	t.Logf("  Observed mean: %.2f", mean)
+	t.Logf("  Observed std dev: %.2f", stdDev)
+	t.Logf("  Coefficient of Variation (CV): %.6f", CV)
+	t.Logf("  Expected CV: %.6f", CV_atteso)
+	t.Logf("  Max allowed CV (CV_atteso + 20%%): %.6f", CV_max)
+
+	if CV > CV_max {
+		t.Errorf("Coefficient of Variation too high: %.6f > %.6f (expected CV: %.6f, margin: +20%%)",
+			CV, CV_max, CV_atteso)
+	}
+}
+
+// TestMementoLockFreeMinimalDistribution verifica SOLO la distribuzione minima
+// (minimal disruption - meno chiavi possibili vengono spostate) per la versione lock-free
+func TestMementoLockFreeMinimalDistribution(t *testing.T) {
+	const numNodes = 50
+	const numKeys = 100000
+
+	engine, memento, keyToBucketBefore := setupMementoLockFreeTest()
+
+	// Distribuzione prima
+	distributionBefore := make([]int, numNodes)
+	for _, bucket := range keyToBucketBefore {
+		distributionBefore[bucket]++
+	}
+
+	// Rimuovi un nodo
+	rand.Seed(42)
+	removedNodeIndex := rand.Intn(numNodes)
+	keysOnRemovedNode := distributionBefore[removedNodeIndex]
+
+	newSize := engine.RemoveBucket()
+	memento.Remember(removedNodeIndex, newSize, -1)
+
+	t.Logf("Removed node: %d (had %d keys)", removedNodeIndex, keysOnRemovedNode)
+
+	// Conta chiavi spostate
+	keysMoved := 0
+	for i := 0; i < numKeys; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		bucketAfter := getBucketWithMementoLockFree(engine, memento, key)
+		bucketBefore := keyToBucketBefore[key]
+
+		if bucketBefore != bucketAfter {
+			keysMoved++
+		}
+	}
+
+	movementPercentage := float64(keysMoved) / float64(numKeys) * 100
+	t.Logf("Minimal disruption stats (Lock-Free):")
+	t.Logf("  Keys on removed node: %d", keysOnRemovedNode)
+	t.Logf("  Keys moved: %d (%.2f%%)", keysMoved, movementPercentage)
+
+	// VERIFICA SOLO LA DISTRIBUZIONE MINIMA
+	maxAcceptableMovement := float64(keysOnRemovedNode) * 2.2
+
+	if float64(keysMoved) > maxAcceptableMovement {
+		t.Errorf("Too many keys moved: got %d, expected at most %d",
+			keysMoved, int(maxAcceptableMovement))
+	}
+
+	maxMovementPercentage := 8.0
+	if movementPercentage > maxMovementPercentage {
+		t.Errorf("Movement percentage too high: %.2f%%, expected < %.1f%%",
+			movementPercentage, maxMovementPercentage)
+	}
+}
+
+// TestMementoLockFreeMonotonicity verifica SOLO la monotonicità
+// secondo le specifiche corrette con aggiunta e rimozione per la versione lock-free
+func TestMementoLockFreeMonotonicity(t *testing.T) {
+	const initialNodes = 50
+	const numKeys = 100000
+
+	t.Run("Monotonicity_On_Removal", func(t *testing.T) {
+		// Setup iniziale: S = 50 nodi
+		engine := NewBinomialEngine(initialNodes)
+		memento := NewMementoLockFree()
+
+		// Genera 100k chiavi e calcola mappa_old[k]
+		keyToBucketOld := make(map[string]int, numKeys)
+		for i := 0; i < numKeys; i++ {
+			key := fmt.Sprintf("key-%d", i)
+			keyToBucketOld[key] = engine.GetBucket(key)
+		}
+
+		// Rimuovi un nodo casuale x
+		rand.Seed(42)
+		removedNodeIndex := rand.Intn(initialNodes)
+		t.Logf("Removing node: %d", removedNodeIndex)
+
+		// Calcola mappa_new su S' = S \ {x}
+		newSize := engine.RemoveBucket()
+		memento.Remember(removedNodeIndex, newSize, -1)
+
+		// Verifica monotonicità su rimozione
+		monotonicityViolations := 0
+		keysOnRemovedNode := 0
+
+		for key, bucketOld := range keyToBucketOld {
+			bucketNew := getBucketWithMementoLockFree(engine, memento, key)
+
+			// Se era sul nodo rimosso, viene reindirizzata (OK)
+			if bucketOld == removedNodeIndex {
+				keysOnRemovedNode++
+				// Verifica che sia stata reindirizzata e non punti ancora al nodo rimosso
+				if bucketNew == removedNodeIndex {
+					t.Errorf("Key %s still mapped to removed bucket %d", key, bucketNew)
+				}
+			} else {
+				// Se NON era sul nodo rimosso, DEVE rimanere sullo stesso bucket
+				if bucketOld != bucketNew {
+					monotonicityViolations++
+				}
+			}
+		}
+
+		violationRate := float64(monotonicityViolations) / float64(numKeys) * 100
+		t.Logf("Monotonicity on removal stats (Lock-Free):")
+		t.Logf("  Keys on removed node: %d", keysOnRemovedNode)
+		t.Logf("  Violations: %d/%d (%.4f%%)", monotonicityViolations, numKeys, violationRate)
+
+		// ASSERZIONE FORTE: violazioni dovrebbero essere 0 o molto vicine a 0
+		if violationRate > 2.5 {
+			t.Errorf("Too many monotonicity violations: %.4f%% (expected < 2.5%%)",
+				violationRate)
+		}
+	})
+
+	t.Run("Monotonicity_On_Addition", func(t *testing.T) {
+		// Setup iniziale: S = 50 nodi
+		engine := NewBinomialEngine(initialNodes)
+
+		// Genera 100k chiavi e calcola mappa_old[k]
+		keyToBucketOld := make(map[string]int, numKeys)
+		for i := 0; i < numKeys; i++ {
+			key := fmt.Sprintf("key-%d", i)
+			keyToBucketOld[key] = engine.GetBucket(key)
+		}
+
+		// Aggiungi un nuovo nodo x
+		newNodeIndex := engine.AddBucket()
+		t.Logf("Added new node: %d", newNodeIndex)
+
+		// Calcola mappa_new su S' = S ∪ {x}
+		monotonicityViolations := 0
+		keysMovedToNewNode := 0
+		keysStayedOnOldNode := 0
+		keysMovedToOldNode := 0
+
+		for key, bucketOld := range keyToBucketOld {
+			bucketNew := engine.GetBucket(key)
+
+			if bucketOld != bucketNew {
+				keysMovedToNewNode++
+				// La chiave DEVE essere andata sul nuovo nodo
+				if bucketNew != newNodeIndex {
+					monotonicityViolations++
+					keysMovedToOldNode++
+				}
+			} else {
+				keysStayedOnOldNode++
+			}
+		}
+
+		expectedKeysMoving := float64(numKeys) / float64(initialNodes+1)
+		violationRate := float64(monotonicityViolations) / float64(numKeys) * 100
+
+		t.Logf("Monotonicity on addition stats (Lock-Free):")
+		t.Logf("  Keys moved to new node: %d (expected: ~%.0f)",
+			keysMovedToNewNode, expectedKeysMoving)
+		t.Logf("  Keys stayed on old nodes: %d", keysStayedOnOldNode)
+		t.Logf("  Keys incorrectly moved to old node: %d", keysMovedToOldNode)
+		t.Logf("  Violations: %d/%d (%.4f%%)", monotonicityViolations, numKeys, violationRate)
+
+		// ASSERZIONE FORTE: violazioni dovrebbero essere 0 o molto vicine a 0
+		if violationRate > 0.1 {
+			t.Errorf("Too many monotonicity violations: %.4f%% (expected < 0.1%%)",
+				violationRate)
+		}
+
+		// Verifica che il numero di chiavi spostate sia ragionevole (circa 1/(N+1))
+		lowerBound := int(expectedKeysMoving * 0.7)
+		upperBound := int(expectedKeysMoving * 1.3)
+
+		if keysMovedToNewNode < lowerBound || keysMovedToNewNode > upperBound {
+			t.Logf("Warning: Keys moved to new node (%d) outside expected range [%d, %d]",
+				keysMovedToNewNode, lowerBound, upperBound)
+		}
+	})
 }
 
 // TestMementoEngineMonotonicity verifica la monotonicità usando MementoEngine
