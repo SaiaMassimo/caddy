@@ -1,3 +1,0 @@
-Benchmark,NsPerOp,AllocBytes,AllocsPerOp,CPU,GOOS,GOARCH
-BenchmarkMementoVsRendezvous_ConcurrentLookupAndTopologyUpdates/Memento_ConcurrentLookupAndUpdates,729.500000,516,3,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64
-BenchmarkMementoVsRendezvous_ConcurrentLookupAndTopologyUpdates/Rendezvous_ConcurrentLookupAndUpdates,1592.000000,512,3,Intel(R) Xeon(R) Silver 4208 CPU @ 2.10GHz,linux,amd64

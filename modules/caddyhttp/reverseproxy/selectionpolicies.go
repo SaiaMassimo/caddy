@@ -1006,11 +1006,8 @@ func (s MementoSelection) Select(pool UpstreamPool, req *http.Request, w http.Re
 		return s.fallback.Select(pool, req, w)
 	}
 
-	// Find the Upstream in the pool that matches this upstream
-	for _, candidate := range pool {
-		if candidate == upstream && candidate.Available() {
-			return candidate
-		}
+	if upstream.Available() {
+		return upstream
 	}
 
 	// Node ID not found in pool - this can happen if topology and pool are out of sync

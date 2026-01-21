@@ -1,4 +1,4 @@
-// Copyright 2024 Massimo Coluzzi and The Caddy Authors
+// Copyright 2024 Massimo Saia and The Caddy Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import (
 // IMPORTANT: This implementation is not performing any consistency check
 // to avoid the performance tests to be falsified.
 //
-// Author: Massimo Coluzzi
+// Author: Massimo Saia
 type BinomialEngine struct {
 	// Number of nodes in the cluster
 	size int
@@ -180,7 +180,7 @@ func (be *BinomialEngine) hash(key string) uint64 {
 	// This is a simplified version - in production you might want to use
 	// a proper MurmurHash3 library like github.com/spaolacci/murmur3
 	bytes := []byte(key)
-	
+
 	// MurmurHash3 32-bit implementation
 	const (
 		c1 = 0xcc9e2d51

@@ -1,4 +1,4 @@
-// Copyright 2024 Massimo Coluzzi and The Caddy Authors
+// Copyright 2024 Massimo Saia and The Caddy Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@ import (
 // This version allows lock-free reads even during resize operations,
 // at the cost of copying the entire table on every write operation.
 //
-// Author: Massimo Coluzzi
+// Author: Massimo Saia
 type MementoLockFree struct {
 	// Stores the information about the removed buckets
 	// Using atomic.Value for lock-free reads during resize

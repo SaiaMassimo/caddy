@@ -33,7 +33,7 @@ type MementoInterface interface {
 // MementoEngine combines Memento with BinomialEngine to provide
 // consistent hashing that supports arbitrary node removals.
 //
-// Author: Massimo Coluzzi
+// Author: Massimo Saia
 type MementoEngine struct {
 	// The memory of the removed nodes (replacement set)
 	// Can be either *Memento (RWMutex version) or *MementoLockFree (lock-free version)
