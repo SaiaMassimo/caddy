@@ -451,6 +451,60 @@ func TestMementoDirectLoadBalancing(t *testing.T) {
 		bucketAfter := getBucketWithMemento(key)
 		bucketBefore := keyToBucket[key]
 
+		// La chiave dopo la rimozione NON dovrebbe mai puntare al nodo rimosso
+		if bucketAfter == randomNodeIndex {
+			t.Errorf("Key %s was still mapped to removed bucket %d", key, bucketAfter)
+		}
+
+		// Verifica che il bucket sia valido
+		if bucketAfter < 0 || bucketAfter >= numNodes {
+			t.Errorf("Invalid bucket %d for key %s after removal", bucketAfter, key)
+			continue
+		}
+
+		distributionAfter[bucketAfter]++
+		if bucketBefore != bucketAfter {
+			keysMoved++
+		}
+	}
+
+	// Calcola statistiche dopo la rimozione
+	totalKeysAfter := 0
+	minKeys := numKeys
+	maxKeys := 0
+	nonZeroNodes := 0
+
+	for i := 0; i < numNodes; i++ {
+		if i == randomNodeIndex {
+			continue
+		}
+		count := distributionAfter[i]
+		totalKeysAfter += count
+		if count > 0 {
+			nonZeroNodes++
+		}
+		if count < minKeys {
+			minKeys = count
+		}
+		if count > maxKeys {
+			maxKeys = count
+		}
+	}
+
+	mean := float64(totalKeysAfter) / float64(numNodes-1)
+
+	variance := 0.0
+	for i := 0; i < numNodes; i++ {
+		if i == randomNodeIndex {
+			continue
+		}
+		diff := float64(distributionAfter[i]) - mean
+		variance += diff * diff
+	}
+	variance /= float64(numNodes - 1)
+	stdDev := math.Sqrt(variance)
+	coefficientOfVariation := stdDev / mean
+
 	t.Logf("  Coefficient of variation: %.4f", coefficientOfVariation)
 	t.Logf("  Nodes with keys: %d/%d", nonZeroNodes, numNodes-1)
 
@@ -470,6 +524,16 @@ func TestMementoDirectLoadBalancing(t *testing.T) {
 	if maxKeys > int(mean*3.5) {
 		t.Errorf("Max keys too high: got %d, expected < %d (3.5x mean)",
 			maxKeys, int(mean*3.5))
+	}
+
+	if totalKeysAfter != numKeys {
+		t.Errorf("Total keys mismatch after removal: expected %d, got %d",
+			numKeys, totalKeysAfter)
+	}
+
+	if keysMoved < keysOnRemovedNode {
+		t.Errorf("Expected at least %d keys moved, got %d",
+			keysOnRemovedNode, keysMoved)
 	}
 }
 
@@ -842,3 +906,57 @@ func TestMementoLockFreeMonotonicity(t *testing.T) {
 }
 
 // TestMementoEngineMonotonicity verifica la monotonicità usando MementoEngine
+
+// setupMementoTest crea un setup comune per i test di Memento
+func setupMementoTest() (*BinomialEngine, *Memento, map[string]int) {
+	const numNodes = 50
+	const numKeys = 100000
+
+	engine := NewBinomialEngine(numNodes)
+	memento := NewMemento()
+	keyToBucketBefore := make(map[string]int, numKeys)
+
+	for i := 0; i < numKeys; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		keyToBucketBefore[key] = engine.GetBucket(key)
+	}
+
+	return engine, memento, keyToBucketBefore
+}
+
+// setupMementoLockFreeTest crea un setup comune per i test di Memento lock-free
+func setupMementoLockFreeTest() (*BinomialEngine, *MementoLockFree, map[string]int) {
+	const numNodes = 50
+	const numKeys = 100000
+
+	engine := NewBinomialEngine(numNodes)
+	memento := NewMementoLockFree()
+	keyToBucketBefore := make(map[string]int, numKeys)
+
+	for i := 0; i < numKeys; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		keyToBucketBefore[key] = engine.GetBucket(key)
+	}
+
+	return engine, memento, keyToBucketBefore
+}
+
+// getBucketWithMemento restituisce il bucket corretto considerando Memento
+func getBucketWithMemento(engine *BinomialEngine, memento *Memento, key string) int {
+	bucket := engine.GetBucket(key)
+	replacer := memento.Replacer(bucket)
+	if replacer != -1 {
+		return replacer
+	}
+	return bucket
+}
+
+// getBucketWithMementoLockFree restituisce il bucket corretto considerando Memento lock-free
+func getBucketWithMementoLockFree(engine *BinomialEngine, memento *MementoLockFree, key string) int {
+	bucket := engine.GetBucket(key)
+	replacer := memento.Replacer(bucket)
+	if replacer != -1 {
+		return replacer
+	}
+	return bucket
+}
