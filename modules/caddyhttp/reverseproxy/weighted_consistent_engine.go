@@ -1,16 +1,18 @@
-package memento
+package reverseproxy
 
 import (
 	"sort"
 	"sync"
+
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
 
 // WeightedConsistentEngine manages the weighted assignment of buckets to nodes
 // using an underlying Memento engine. It coordinates between the hashing logic
 // of MementoEngine and the mapping logic of WeightedIndirection.
 type WeightedConsistentEngine struct {
-	memento     *MementoEngine       // The underlying consistent hashing engine
-	indirection *WeightedIndirection // Manages the mapping of buckets to nodes
+	memento     *memento.MementoEngine // The underlying consistent hashing engine
+	indirection *WeightedIndirection   // Manages the mapping of buckets to nodes
 
 	// Mutex to protect concurrent access
 	mu sync.RWMutex
@@ -19,7 +21,7 @@ type WeightedConsistentEngine struct {
 // NewWeightedConsistentEngine creates a new weighted consistent hashing engine.
 func NewWeightedConsistentEngine() *WeightedConsistentEngine {
 	return &WeightedConsistentEngine{
-		memento:     NewMementoEngine(0),
+		memento:     memento.NewMementoEngine(0),
 		indirection: NewWeightedIndirection(),
 	}
 }
@@ -30,43 +32,45 @@ func NewWeightedConsistentEngine() *WeightedConsistentEngine {
 
 // --- Main Operation Implementations ---
 
-// InitCluster initializes the cluster with a set of nodes and their weights.
-func (w *WeightedConsistentEngine) InitCluster(nodesWithWeights map[string]int) {
+// InitCluster initializes the cluster with a set of upstreams and their weights.
+func (w *WeightedConsistentEngine) InitCluster(nodesWithWeights map[*Upstream]int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	totalBuckets := 0
-	nodeIDs := make([]string, 0, len(nodesWithWeights))
+	upstreams := make([]*Upstream, 0, len(nodesWithWeights))
 
-	for nodeID, weight := range nodesWithWeights {
+	for upstream, weight := range nodesWithWeights {
 		totalBuckets += weight
-		nodeIDs = append(nodeIDs, nodeID)
+		upstreams = append(upstreams, upstream)
 	}
 
 	// Re-initialize the engine with the correct total size
-	w.memento = NewMementoEngine(totalBuckets)
+	w.memento = memento.NewMementoEngine(totalBuckets)
 
-	// Sort nodes for deterministic bucket assignment
-	sort.Strings(nodeIDs)
+	// Sort upstreams for deterministic bucket assignment
+	sort.Slice(upstreams, func(i, j int) bool {
+		return upstreams[i].String() < upstreams[j].String()
+	})
 
 	// Initialize data structures for each node in the indirection layer
-	for _, nodeID := range nodeIDs {
-		weight := nodesWithWeights[nodeID]
-		w.indirection.InitNode(nodeID, weight)
+	for _, upstream := range upstreams {
+		weight := nodesWithWeights[upstream]
+		w.indirection.InitNode(upstream, weight)
 	}
 
 	// Interleaved (weighted round-robin) bucket assignment for better distribution
 	b := 0
-	tempWeights := make(map[string]int)
-	for node, weight := range nodesWithWeights {
-		tempWeights[node] = weight
+	tempWeights := make(map[*Upstream]int)
+	for upstream, weight := range nodesWithWeights {
+		tempWeights[upstream] = weight
 	}
 
 	for b < totalBuckets {
-		for _, nodeID := range nodeIDs {
-			if tempWeights[nodeID] > 0 {
-				w.indirection.AttachBucket(b, nodeID)
-				tempWeights[nodeID]--
+		for _, upstream := range upstreams {
+			if tempWeights[upstream] > 0 {
+				w.indirection.AttachBucket(b, upstream)
+				tempWeights[upstream]--
 				b++
 			}
 		}
@@ -74,47 +78,47 @@ func (w *WeightedConsistentEngine) InitCluster(nodesWithWeights map[string]int) 
 }
 
 // Lookup finds the node that owns a key.
-func (w *WeightedConsistentEngine) Lookup(key string) (string, bool) {
+func (w *WeightedConsistentEngine) Lookup(key string) (*Upstream, bool) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
 	if w.memento.Size() == 0 {
-		return "", false
+		return nil, false
 	}
 
 	bucketID := w.memento.GetBucket(key)
-	nodeID, ok := w.indirection.GetNodeID(bucketID)
-	return nodeID, ok
+	upstream, ok := w.indirection.GetNodeID(bucketID)
+	return upstream, ok
 }
 
 // AddNode adds a new node with a given weight.
-func (w *WeightedConsistentEngine) AddNode(nodeID string, weight int) {
+func (w *WeightedConsistentEngine) AddNode(upstream *Upstream, weight int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if w.indirection.HasNode(nodeID) {
+	if w.indirection.HasNode(upstream) {
 		return // Node already exists
 	}
 
-	w.indirection.InitNode(nodeID, weight)
+	w.indirection.InitNode(upstream, weight)
 
 	for i := 0; i < weight; i++ {
 		bucketID := w.memento.AddBucket()
-		w.indirection.AttachBucket(bucketID, nodeID)
+		w.indirection.AttachBucket(bucketID, upstream)
 	}
 }
 
 // RemoveNode removes a node from the cluster.
-func (w *WeightedConsistentEngine) RemoveNode(nodeID string) {
+func (w *WeightedConsistentEngine) RemoveNode(upstream *Upstream) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if !w.indirection.HasNode(nodeID) {
+	if !w.indirection.HasNode(upstream) {
 		return // Node does not exist
 	}
 
 	// Get the buckets to remove from the indirection layer first
-	bucketsToRemove := w.indirection.GetBucketsForNode(nodeID)
+	bucketsToRemove := w.indirection.GetBucketsForNode(upstream)
 
 	// Remove each bucket from the memento engine
 	for _, bucketID := range bucketsToRemove {
@@ -122,11 +126,11 @@ func (w *WeightedConsistentEngine) RemoveNode(nodeID string) {
 	}
 
 	// Clean up all metadata for the removed node in the indirection layer
-	w.indirection.RemoveNode(nodeID)
+	w.indirection.RemoveNode(upstream)
 }
 
 // UpdateWeight updates the weight of an existing node.
-func (w *WeightedConsistentEngine) UpdateWeight(nodeID string, newWeight int) {
+func (w *WeightedConsistentEngine) UpdateWeight(upstream *Upstream, newWeight int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -134,29 +138,29 @@ func (w *WeightedConsistentEngine) UpdateWeight(nodeID string, newWeight int) {
 		newWeight = 0
 	}
 
-	oldWeight, exists := w.indirection.GetWeight(nodeID)
+	oldWeight, exists := w.indirection.GetWeight(upstream)
 
 	if !exists {
 		// If the node doesn't exist, treat it as an AddNode operation
-		w.indirection.InitNode(nodeID, newWeight)
+		w.indirection.InitNode(upstream, newWeight)
 		for i := 0; i < newWeight; i++ {
 			bucketID := w.memento.AddBucket()
-			w.indirection.AttachBucket(bucketID, nodeID)
+			w.indirection.AttachBucket(bucketID, upstream)
 		}
 		return
 	}
 
-	w.indirection.UpdateWeight(nodeID, newWeight)
+	w.indirection.UpdateWeight(upstream, newWeight)
 	delta := newWeight - oldWeight
 
 	if delta > 0 { // Weight increased
 		for i := 0; i < delta; i++ {
 			bucketID := w.memento.AddBucket()
-			w.indirection.AttachBucket(bucketID, nodeID)
+			w.indirection.AttachBucket(bucketID, upstream)
 		}
 	} else if delta < 0 { // Weight decreased
 		numToRemove := -delta
-		bucketsOwned := w.indirection.GetBucketsForNode(nodeID)
+		bucketsOwned := w.indirection.GetBucketsForNode(upstream)
 
 		if numToRemove > len(bucketsOwned) {
 			numToRemove = len(bucketsOwned)

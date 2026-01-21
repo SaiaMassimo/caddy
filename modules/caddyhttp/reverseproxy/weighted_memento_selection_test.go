@@ -44,7 +44,7 @@ func TestWeightedMementoSelectionDistribution(t *testing.T) {
 
 	// Generate a large number of test keys and record distribution
 	const numTestKeys = 10000
-	distribution := make(map[string]int)
+	distribution := make(map[*Upstream]int)
 	for i := 0; i < numTestKeys; i++ {
 		key := fmt.Sprintf("192.168.1.%d:%d", i%256, i)
 		req, _ := http.NewRequest("GET", "/", nil)
@@ -54,7 +54,7 @@ func TestWeightedMementoSelectionDistribution(t *testing.T) {
 		if host == nil {
 			t.Fatalf("Expected host selection for key %s", key)
 		}
-		distribution[host.Dial]++
+		distribution[host]++
 	}
 
 	// Calculate total weight
@@ -67,7 +67,7 @@ func TestWeightedMementoSelectionDistribution(t *testing.T) {
 	t.Logf("Distribution results for %d keys:", numTestKeys)
 	for i, host := range pool {
 		hostWeight := weights[i]
-		count := distribution[host.Dial]
+		count := distribution[host]
 		expectedRatio := float64(hostWeight) / float64(totalWeight)
 		actualRatio := float64(count) / float64(numTestKeys)
 
@@ -162,7 +162,7 @@ func TestWeightedMementoSelectionRemovalAndRestore(t *testing.T) {
 
 	// Store initial mappings for a set of keys
 	const numTestKeys = 200
-	initialMappings := make(map[string]string)
+	initialMappings := make(map[string]*Upstream)
 	for i := 0; i < numTestKeys; i++ {
 		key := fmt.Sprintf("172.16.1.%d", i)
 		req, _ := http.NewRequest("GET", "/", nil)
@@ -171,7 +171,7 @@ func TestWeightedMementoSelectionRemovalAndRestore(t *testing.T) {
 		if host == nil {
 			t.Fatalf("Initial selection failed for key %s", key)
 		}
-		initialMappings[key] = host.Dial
+		initialMappings[key] = host
 	}
 
 	// Remove a host
@@ -187,7 +187,7 @@ func TestWeightedMementoSelectionRemovalAndRestore(t *testing.T) {
 
 	// Verify that all mappings have been restored to their original state
 	restorationFailures := 0
-	for key, originalHostDial := range initialMappings {
+	for key, originalHost := range initialMappings {
 		req, _ := http.NewRequest("GET", "/", nil)
 		req.RemoteAddr = key
 		currentHost := policy.Select(pool, req, nil)
@@ -196,8 +196,8 @@ func TestWeightedMementoSelectionRemovalAndRestore(t *testing.T) {
 			restorationFailures++
 			continue
 		}
-		if currentHost.Dial != originalHostDial {
-			t.Errorf("Key %s: Mapping not restored. Expected %s, got %s.", key, originalHostDial, currentHost.Dial)
+		if currentHost != originalHost {
+			t.Errorf("Key %s: Mapping not restored. Expected %s, got %s.", key, originalHost.Dial, currentHost.Dial)
 			restorationFailures++
 		}
 	}
@@ -226,13 +226,13 @@ func TestWeightedMementoSelectionLoadBalancing(t *testing.T) {
 	policy.PopulateInitialTopology(pool)
 
 	const numKeys = 100000
-	distribution := make(map[string]int)
+	distribution := make(map[*Upstream]int)
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("balance-key-%d", i)
 		req, _ := http.NewRequest("GET", "/", nil)
 		req.RemoteAddr = key
 		host := policy.Select(pool, req, nil)
-		distribution[host.Dial]++
+		distribution[host]++
 	}
 
 	totalWeight := 0
@@ -244,7 +244,7 @@ func TestWeightedMementoSelectionLoadBalancing(t *testing.T) {
 	maxDeviation := 0.0
 	for i, host := range pool {
 		hostWeight := weights[i]
-		count := distribution[host.Dial]
+		count := distribution[host]
 		expectedCount := float64(hostWeight) / float64(totalWeight) * float64(numKeys)
 		deviation := (float64(count) - expectedCount) / expectedCount * 100
 
@@ -286,13 +286,13 @@ func TestWeightedMementoSelectionMonotonicity(t *testing.T) {
 	policy.PopulateInitialTopology(pool)
 
 	const numKeys = 10000
-	mappaOld := make(map[string]string, numKeys)
+	mappaOld := make(map[string]*Upstream, numKeys)
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("monotonicity-key-%d", i)
 		req, _ := http.NewRequest("GET", "/", nil)
 		req.RemoteAddr = key
 		host := policy.Select(pool, req, nil)
-		mappaOld[key] = host.Dial
+		mappaOld[key] = host
 	}
 
 	// Add a new host
@@ -312,7 +312,7 @@ func TestWeightedMementoSelectionMonotonicity(t *testing.T) {
 	})
 
 	violations := 0
-	for key, oldHostDial := range mappaOld {
+	for key, oldHost := range mappaOld {
 		req, _ := http.NewRequest("GET", "/", nil)
 		req.RemoteAddr = key
 		// Select from the updated pool. The policy's internal ring now includes the new host.
@@ -323,10 +323,10 @@ func TestWeightedMementoSelectionMonotonicity(t *testing.T) {
 			continue
 		}
 
-		if currentHost.Dial != oldHostDial && currentHost.Dial != newHost.Dial {
+		if currentHost != oldHost && currentHost != newHost {
 			violations++
 			t.Errorf("Monotonicity violation: key %s moved from %s to %s (expected %s or %s)",
-				key, oldHostDial, currentHost.Dial, oldHostDial, newHost.Dial)
+				key, oldHost.Dial, currentHost.Dial, oldHost.Dial, newHost.Dial)
 		}
 	}
 
@@ -355,13 +355,13 @@ func TestWeightedMementoSelectionMinimalDisruption(t *testing.T) {
 	policy.PopulateInitialTopology(pool)
 
 	const numKeys = 10000
-	mappaOld := make(map[string]string, numKeys)
+	mappaOld := make(map[string]*Upstream, numKeys)
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("disruption-key-%d", i)
 		req, _ := http.NewRequest("GET", "/", nil)
 		req.RemoteAddr = key
 		host := policy.Select(pool, req, nil)
-		mappaOld[key] = host.Dial
+		mappaOld[key] = host
 	}
 
 	// Remove a host
@@ -371,8 +371,8 @@ func TestWeightedMementoSelectionMinimalDisruption(t *testing.T) {
 	})
 
 	violations := 0
-	for key, oldHostDial := range mappaOld {
-		if oldHostDial == hostToRemove.Dial {
+	for key, oldHost := range mappaOld {
+		if oldHost == hostToRemove {
 			continue // This key is expected to be remapped.
 		}
 
@@ -385,10 +385,10 @@ func TestWeightedMementoSelectionMinimalDisruption(t *testing.T) {
 			continue
 		}
 
-		if newHost.Dial != oldHostDial {
+		if newHost != oldHost {
 			violations++
 			t.Errorf("Minimal Disruption violation: key %s moved from %s to %s (was not on removed host %s)",
-				key, oldHostDial, newHost.Dial, hostToRemove.Dial)
+				key, oldHost.Dial, newHost.Dial, hostToRemove.Dial)
 		}
 	}
 

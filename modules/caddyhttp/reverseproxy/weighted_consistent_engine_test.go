@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package memento
+package reverseproxy
 
 import (
 	"fmt"
@@ -22,25 +22,30 @@ import (
 // TestWCE_Distribution verifies that keys are distributed according to weights.
 func TestWCE_Distribution(t *testing.T) {
 	engine := NewWeightedConsistentEngine()
-	nodesWithWeights := map[string]int{
-		"node1": 10,
-		"node2": 1,
-		"node3": 1,
-		"node4": 5,
-		"node5": 3,
+	up1 := &Upstream{Dial: "node1"}
+	up2 := &Upstream{Dial: "node2"}
+	up3 := &Upstream{Dial: "node3"}
+	up4 := &Upstream{Dial: "node4"}
+	up5 := &Upstream{Dial: "node5"}
+	nodesWithWeights := map[*Upstream]int{
+		up1: 10,
+		up2: 1,
+		up3: 1,
+		up4: 5,
+		up5: 3,
 	}
 
 	engine.InitCluster(nodesWithWeights)
 
 	const numTestKeys = 10000
-	distribution := make(map[string]int)
+	distribution := make(map[*Upstream]int)
 	for i := 0; i < numTestKeys; i++ {
 		key := fmt.Sprintf("192.168.1.%d:%d", i%256, i)
-		nodeID, ok := engine.Lookup(key)
+		upstream, ok := engine.Lookup(key)
 		if !ok {
 			t.Fatalf("Expected node selection for key %s, but got none", key)
 		}
-		distribution[nodeID]++
+		distribution[upstream]++
 	}
 
 	totalWeight := 0
@@ -49,18 +54,18 @@ func TestWCE_Distribution(t *testing.T) {
 	}
 
 	t.Logf("Distribution results for %d keys:", numTestKeys)
-	for nodeID, weight := range nodesWithWeights {
-		count := distribution[nodeID]
+	for upstream, weight := range nodesWithWeights {
+		count := distribution[upstream]
 		expectedRatio := float64(weight) / float64(totalWeight)
 		actualRatio := float64(count) / float64(numTestKeys)
 
 		tolerance := 0.05 // Allow for a 5% tolerance
 		if actualRatio < (expectedRatio-tolerance) || actualRatio > (expectedRatio+tolerance) {
 			t.Errorf("Node %s (Weight %d): Expected ratio around %.3f, got %.3f (Count: %d)",
-				nodeID, weight, expectedRatio, actualRatio, count)
+				upstream.String(), weight, expectedRatio, actualRatio, count)
 		} else {
 			t.Logf("Node %s (Weight %d): Ratio %.3f (Count: %d) - OK",
-				nodeID, weight, actualRatio, count)
+				upstream.String(), weight, actualRatio, count)
 		}
 	}
 }
@@ -68,21 +73,24 @@ func TestWCE_Distribution(t *testing.T) {
 // TestWCE_Removal verifies correct remapping after a node is removed.
 func TestWCE_Removal(t *testing.T) {
 	engine := NewWeightedConsistentEngine()
-	nodesWithWeights := map[string]int{
-		"nodeA": 10,
-		"nodeB": 2,
-		"nodeC": 8,
+	upA := &Upstream{Dial: "nodeA"}
+	upB := &Upstream{Dial: "nodeB"}
+	upC := &Upstream{Dial: "nodeC"}
+	nodesWithWeights := map[*Upstream]int{
+		upA: 10,
+		upB: 2,
+		upC: 8,
 	}
 	engine.InitCluster(nodesWithWeights)
 
-	nodeToRemove := "nodeB"
+	nodeToRemove := upB
 	var keyMappedToRemovedNode string
 
 	// Find a key that maps to the node we will remove
 	for i := 0; i < 5000; i++ {
 		key := fmt.Sprintf("10.0.0.%d", i)
-		nodeID, _ := engine.Lookup(key)
-		if nodeID == nodeToRemove {
+		upstream, _ := engine.Lookup(key)
+		if upstream == nodeToRemove {
 			keyMappedToRemovedNode = key
 			break
 		}
@@ -101,38 +109,41 @@ func TestWCE_Removal(t *testing.T) {
 		t.Fatalf("Key %s was not remapped to any node after removal.", keyMappedToRemovedNode)
 	}
 	if newNodeID == nodeToRemove {
-		t.Fatalf("Key %s is still mapped to the removed node %s.", keyMappedToRemovedNode, nodeToRemove)
+		t.Fatalf("Key %s is still mapped to the removed node %s.", keyMappedToRemovedNode, nodeToRemove.String())
 	}
-	if newNodeID != "nodeA" && newNodeID != "nodeC" {
-		t.Errorf("Key %s was remapped to an unexpected node: %s", keyMappedToRemovedNode, newNodeID)
+	if newNodeID != upA && newNodeID != upC {
+		t.Errorf("Key %s was remapped to an unexpected node: %s", keyMappedToRemovedNode, newNodeID.String())
 	} else {
-		t.Logf("Key %s successfully remapped from %s to %s.", keyMappedToRemovedNode, nodeToRemove, newNodeID)
+		t.Logf("Key %s successfully remapped from %s to %s.", keyMappedToRemovedNode, nodeToRemove.String(), newNodeID.String())
 	}
 }
 
 // TestWCE_RemovalAndRestore verifies that mappings are restored after a node is brought back online.
 func TestWCE_RemovalAndRestore(t *testing.T) {
 	engine := NewWeightedConsistentEngine()
-	nodesWithWeights := map[string]int{
-		"host1": 5,
-		"host2": 8,
-		"host3": 3,
+	up1 := &Upstream{Dial: "host1"}
+	up2 := &Upstream{Dial: "host2"}
+	up3 := &Upstream{Dial: "host3"}
+	nodesWithWeights := map[*Upstream]int{
+		up1: 5,
+		up2: 8,
+		up3: 3,
 	}
 	engine.InitCluster(nodesWithWeights)
 
 	const numTestKeys = 500
-	initialMappings := make(map[string]string)
+	initialMappings := make(map[string]*Upstream)
 	for i := 0; i < numTestKeys; i++ {
 		key := fmt.Sprintf("172.16.1.%d", i)
-		nodeID, ok := engine.Lookup(key)
+		upstream, ok := engine.Lookup(key)
 		if !ok {
 			t.Fatalf("Initial lookup failed for key %s", key)
 		}
-		initialMappings[key] = nodeID
+		initialMappings[key] = upstream
 	}
 
 	// Remove a node
-	nodeToRemove := "host2"
+	nodeToRemove := up2
 	weightOfRemovedNode := nodesWithWeights[nodeToRemove]
 	engine.RemoveNode(nodeToRemove)
 
@@ -149,7 +160,7 @@ func TestWCE_RemovalAndRestore(t *testing.T) {
 			continue
 		}
 		if currentNodeID != originalNodeID {
-			t.Errorf("Key %s: Mapping not restored. Expected %s, got %s.", key, originalNodeID, currentNodeID)
+			t.Errorf("Key %s: Mapping not restored. Expected %s, got %s.", key, originalNodeID.String(), currentNodeID.String())
 			restorationFailures++
 		}
 	}
@@ -165,23 +176,26 @@ func TestWCE_RemovalAndRestore(t *testing.T) {
 // keys either stay on their current node or move to the new node.
 func TestWCE_Monotonicity(t *testing.T) {
 	engine := NewWeightedConsistentEngine()
-	nodesWithWeights := map[string]int{
-		"node1": 10,
-		"node2": 20,
-		"node3": 5,
+	up1 := &Upstream{Dial: "node1"}
+	up2 := &Upstream{Dial: "node2"}
+	up3 := &Upstream{Dial: "node3"}
+	nodesWithWeights := map[*Upstream]int{
+		up1: 10,
+		up2: 20,
+		up3: 5,
 	}
 	engine.InitCluster(nodesWithWeights)
 
 	const numKeys = 10000
-	mappaOld := make(map[string]string, numKeys)
+	mappaOld := make(map[string]*Upstream, numKeys)
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("monotonicity-key-%d", i)
-		nodeID, _ := engine.Lookup(key)
-		mappaOld[key] = nodeID
+		upstream, _ := engine.Lookup(key)
+		mappaOld[key] = upstream
 	}
 
 	// Add a new node
-	newNodeID := "node4"
+	newNodeID := &Upstream{Dial: "node4"}
 	engine.AddNode(newNodeID, 15)
 
 	violations := 0
@@ -196,7 +210,7 @@ func TestWCE_Monotonicity(t *testing.T) {
 		if newNode != oldNodeID && newNode != newNodeID {
 			violations++
 			t.Errorf("Monotonicity violation: key %s moved from %s to %s (expected %s or %s)",
-				key, oldNodeID, newNode, oldNodeID, newNodeID)
+				key, oldNodeID.String(), newNode.String(), oldNodeID.String(), newNodeID.String())
 		}
 	}
 
@@ -211,23 +225,26 @@ func TestWCE_Monotonicity(t *testing.T) {
 // only keys that were on that node are remapped.
 func TestWCE_MinimalDisruption(t *testing.T) {
 	engine := NewWeightedConsistentEngine()
-	nodesWithWeights := map[string]int{
-		"nodeA": 10,
-		"nodeB": 2,
-		"nodeC": 8,
+	upA := &Upstream{Dial: "nodeA"}
+	upB := &Upstream{Dial: "nodeB"}
+	upC := &Upstream{Dial: "nodeC"}
+	nodesWithWeights := map[*Upstream]int{
+		upA: 10,
+		upB: 2,
+		upC: 8,
 	}
 	engine.InitCluster(nodesWithWeights)
 
 	const numKeys = 10000
-	mappaOld := make(map[string]string, numKeys)
+	mappaOld := make(map[string]*Upstream, numKeys)
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("disruption-key-%d", i)
-		nodeID, _ := engine.Lookup(key)
-		mappaOld[key] = nodeID
+		upstream, _ := engine.Lookup(key)
+		mappaOld[key] = upstream
 	}
 
 	// Remove a node
-	nodeToRemove := "nodeB"
+	nodeToRemove := upB
 	engine.RemoveNode(nodeToRemove)
 
 	violations := 0
@@ -246,7 +263,7 @@ func TestWCE_MinimalDisruption(t *testing.T) {
 		if newNode != oldNodeID {
 			violations++
 			t.Errorf("Minimal Disruption violation: key %s moved from %s to %s (was not on removed node %s)",
-				key, oldNodeID, newNode, nodeToRemove)
+				key, oldNodeID.String(), newNode.String(), nodeToRemove.String())
 		}
 	}
 
@@ -260,19 +277,22 @@ func TestWCE_MinimalDisruption(t *testing.T) {
 // TestWCE_LoadBalancing verifies the fairness of key distribution according to weights.
 func TestWCE_LoadBalancing(t *testing.T) {
 	engine := NewWeightedConsistentEngine()
-	nodesWithWeights := map[string]int{
-		"node_w50": 50,
-		"node_w30": 30,
-		"node_w20": 20,
+	up50 := &Upstream{Dial: "node_w50"}
+	up30 := &Upstream{Dial: "node_w30"}
+	up20 := &Upstream{Dial: "node_w20"}
+	nodesWithWeights := map[*Upstream]int{
+		up50: 50,
+		up30: 30,
+		up20: 20,
 	}
 	engine.InitCluster(nodesWithWeights)
 
 	const numKeys = 100000
-	distribution := make(map[string]int)
+	distribution := make(map[*Upstream]int)
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("balance-key-%d", i)
-		nodeID, _ := engine.Lookup(key)
-		distribution[nodeID]++
+		upstream, _ := engine.Lookup(key)
+		distribution[upstream]++
 	}
 
 	totalWeight := 0
@@ -282,8 +302,8 @@ func TestWCE_LoadBalancing(t *testing.T) {
 
 	t.Logf("Load balancing results for %d keys:", numKeys)
 	maxDeviation := 0.0
-	for nodeID, weight := range nodesWithWeights {
-		count := distribution[nodeID]
+	for upstream, weight := range nodesWithWeights {
+		count := distribution[upstream]
 		expectedCount := float64(weight) / float64(totalWeight) * float64(numKeys)
 		deviation := (float64(count) - expectedCount) / expectedCount * 100
 
@@ -295,7 +315,7 @@ func TestWCE_LoadBalancing(t *testing.T) {
 		}
 
 		t.Logf("Node %s (Weight %d): %d keys (Expected: %.0f, Deviation: %.2f%%)",
-			nodeID, weight, count, expectedCount, deviation)
+			upstream.String(), weight, count, expectedCount, deviation)
 	}
 
 	// Allow a maximum deviation of 15% from the expected value for any node.

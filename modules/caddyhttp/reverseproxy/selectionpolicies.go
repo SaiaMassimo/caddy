@@ -1182,9 +1182,9 @@ type WeightedMementoSelection struct {
 	fallback    Selector
 
 	// Internal state for consistent hashing
-	consistentEngine *memento.WeightedConsistentEngine
-	initialWeights   map[string]int // Persist initial weights for re-balancing
-	topology         sync.Map       // Track which nodes are currently available (map[string]bool, thread-safe)
+	consistentEngine *WeightedConsistentEngine
+	initialWeights   map[*Upstream]int // Persist initial weights for re-balancing
+	topology         sync.Map          // Track which nodes are currently available (map[*Upstream]bool, thread-safe)
 
 	// Event system integration
 	events *caddyevents.App
@@ -1270,8 +1270,8 @@ func (s *WeightedMementoSelection) Provision(ctx caddy.Context) error {
 	s.fallback = mod.(Selector)
 
 	// Initialize the weighted consistent hashing engine
-	s.consistentEngine = memento.NewWeightedConsistentEngine()
-	s.initialWeights = make(map[string]int)
+	s.consistentEngine = NewWeightedConsistentEngine()
+	s.initialWeights = make(map[*Upstream]int)
 
 	// Set up event system integration
 	s.ctx = ctx
@@ -1320,14 +1320,13 @@ func (s *WeightedMementoSelection) Select(pool UpstreamPool, req *http.Request, 
 	}
 
 	// Use the weighted consistent engine to find the node
-	if nodeID, ok := s.consistentEngine.Lookup(key); ok {
-		// s.logger.Debug("memento lookup", zap.String("key", key), zap.String("nodeID", nodeID))
-		// Find the Upstream in the pool that matches this node ID
-		for _, upstream := range pool {
-			if upstream.String() == nodeID {
-				return upstream
-			}
+	if upstream, ok := s.consistentEngine.Lookup(key); ok {
+		// s.logger.Debug("memento lookup", zap.String("key", key), zap.String("nodeID", upstream.String()))
+
+		if upstream.Available() {
+			return upstream
 		}
+
 	}
 
 	// Fallback if the node is not found or engine is not ready
@@ -1348,9 +1347,8 @@ func (s *WeightedMementoSelection) PopulateInitialTopology(upstreams []*Upstream
 		return
 	}
 
-	nodesWithWeights := make(map[string]int)
+	nodesWithWeights := make(map[*Upstream]int)
 	for i, upstream := range upstreams {
-		host := upstream.String()
 		weight := 1 // Default weight
 		if i < len(s.Weights) {
 			weight = s.Weights[i]
@@ -1358,15 +1356,15 @@ func (s *WeightedMementoSelection) PopulateInitialTopology(upstreams []*Upstream
 		if weight <= 0 {
 			continue
 		}
-		nodesWithWeights[host] = weight
-		s.initialWeights[host] = weight // Store for later
+		nodesWithWeights[upstream] = weight
+		s.initialWeights[upstream] = weight // Store for later
 	}
 
 	s.consistentEngine.InitCluster(nodesWithWeights)
 
 	// Mark all nodes as present in the topology map
-	for host := range nodesWithWeights {
-		s.topology.Store(host, true)
+	for upstream := range nodesWithWeights {
+		s.topology.Store(upstream, true)
 	}
 }
 
@@ -1389,15 +1387,26 @@ func (s *WeightedMementoSelection) handleHealthyEvent(ctx context.Context, event
 		return nil
 	}
 
+	var upstream *Upstream
+	for up := range s.initialWeights {
+		if up.String() == host {
+			upstream = up
+			break
+		}
+	}
+	if upstream == nil {
+		return nil
+	}
+
 	// Re-add the node only if it was previously part of the topology
-	if _, exists := s.topology.Load(host); !exists {
-		weight, hasInitialWeight := s.initialWeights[host]
+	if _, exists := s.topology.Load(upstream); !exists {
+		weight, hasInitialWeight := s.initialWeights[upstream]
 		if !hasInitialWeight {
 			// This should not happen if the host was part of the initial config
 			weight = 1
 		}
-		s.consistentEngine.AddNode(host, weight)
-		s.topology.Store(host, true)
+		s.consistentEngine.AddNode(upstream, weight)
+		s.topology.Store(upstream, true)
 	}
 	return nil
 }
@@ -1412,9 +1421,20 @@ func (s *WeightedMementoSelection) handleUnhealthyEvent(ctx context.Context, eve
 		return nil
 	}
 
-	if _, exists := s.topology.Load(host); exists {
-		s.consistentEngine.RemoveNode(host)
-		s.topology.Delete(host)
+	var upstream *Upstream
+	for up := range s.initialWeights {
+		if up.String() == host {
+			upstream = up
+			break
+		}
+	}
+	if upstream == nil {
+		return nil
+	}
+
+	if _, exists := s.topology.Load(upstream); exists {
+		s.consistentEngine.RemoveNode(upstream)
+		s.topology.Delete(upstream)
 	}
 	return nil
 }
