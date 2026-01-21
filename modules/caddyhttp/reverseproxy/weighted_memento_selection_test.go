@@ -209,6 +209,196 @@ func TestWeightedMementoSelectionRemovalAndRestore(t *testing.T) {
 	}
 }
 
+// TestWeightedMementoSelectionLoadBalancing verifies the fairness of key distribution according to weights.
+func TestWeightedMementoSelectionLoadBalancing(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	weights := []int{50, 30, 20}
+	numHosts := len(weights)
+	pool := createWeightedPool(numHosts, weights)
+
+	policy := &WeightedMementoSelection{Field: "ip", Weights: weights}
+	if err := policy.Provision(ctx); err != nil {
+		t.Fatalf("Provision error: %v", err)
+	}
+	policy.fallback = &failSelector{t: t}
+	policy.PopulateInitialTopology(pool)
+
+	const numKeys = 100000
+	distribution := make(map[string]int)
+	for i := 0; i < numKeys; i++ {
+		key := fmt.Sprintf("balance-key-%d", i)
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.RemoteAddr = key
+		host := policy.Select(pool, req, nil)
+		distribution[host.Dial]++
+	}
+
+	totalWeight := 0
+	for _, w := range weights {
+		totalWeight += w
+	}
+
+	t.Logf("Load balancing results for %d keys:", numKeys)
+	maxDeviation := 0.0
+	for i, host := range pool {
+		hostWeight := weights[i]
+		count := distribution[host.Dial]
+		expectedCount := float64(hostWeight) / float64(totalWeight) * float64(numKeys)
+		deviation := (float64(count) - expectedCount) / expectedCount * 100
+
+		if deviation < 0 {
+			deviation = -deviation
+		}
+		if deviation > maxDeviation {
+			maxDeviation = deviation
+		}
+
+		t.Logf("Host %s (Weight %d): %d keys (Expected: %.0f, Deviation: %.2f%%)",
+			host.Dial, hostWeight, count, expectedCount, deviation)
+	}
+
+	const tolerance = 15.0
+	if maxDeviation > tolerance {
+		t.Errorf("Load balancing deviation exceeds tolerance of %.2f%%. Max deviation was %.2f%%.",
+			tolerance, maxDeviation)
+	} else {
+		t.Logf("Maximum load deviation (%.2f%%) is within the %.2f%% tolerance.", maxDeviation, tolerance)
+	}
+}
+
+// TestWeightedMementoSelectionMonotonicity verifies that when a new host is added,
+// keys either stay on their current host or move to the new host.
+func TestWeightedMementoSelectionMonotonicity(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	weights := []int{10, 20, 5}
+	numHosts := len(weights)
+	pool := createWeightedPool(numHosts, weights)
+
+	policy := &WeightedMementoSelection{Field: "ip", Weights: weights}
+	if err := policy.Provision(ctx); err != nil {
+		t.Fatalf("Provision error: %v", err)
+	}
+	policy.fallback = &failSelector{t: t}
+	policy.PopulateInitialTopology(pool)
+
+	const numKeys = 10000
+	mappaOld := make(map[string]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		key := fmt.Sprintf("monotonicity-key-%d", i)
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.RemoteAddr = key
+		host := policy.Select(pool, req, nil)
+		mappaOld[key] = host.Dial
+	}
+
+	// Add a new host
+	newHost := &Upstream{
+		Host: new(Host),
+		Dial: fmt.Sprintf("localhost:%d", 8080+numHosts),
+	}
+	newHost.setHealthy(true)
+	// The newPool variable is not strictly necessary for the policy's selection logic
+	// after the event, but it's good practice to keep a consistent view of the pool.
+	newPool := append(pool, newHost)
+	policy.Weights = append(weights, 15) // Add weight for the new host
+
+	// Notify the policy about the new healthy host. This updates the internal hash ring.
+	policy.handleHealthyEvent(context.Background(), caddy.Event{
+		Data: map[string]any{"host": newHost.String()},
+	})
+
+	violations := 0
+	for key, oldHostDial := range mappaOld {
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.RemoteAddr = key
+		// Select from the updated pool. The policy's internal ring now includes the new host.
+		currentHost := policy.Select(newPool, req, nil)
+		if currentHost == nil {
+			t.Errorf("Monotonicity violation: key %s failed to map to any host after addition", key)
+			violations++
+			continue
+		}
+
+		if currentHost.Dial != oldHostDial && currentHost.Dial != newHost.Dial {
+			violations++
+			t.Errorf("Monotonicity violation: key %s moved from %s to %s (expected %s or %s)",
+				key, oldHostDial, currentHost.Dial, oldHostDial, newHost.Dial)
+		}
+	}
+
+	if violations > 0 {
+		t.Fatalf("Monotonicity property violated for %d keys", violations)
+	} else {
+		t.Logf("Monotonicity property maintained for all %d keys after host addition.", numKeys)
+	}
+}
+
+// TestWeightedMementoSelectionMinimalDisruption verifies that when a host is removed,
+// only keys that were on that host are remapped.
+func TestWeightedMementoSelectionMinimalDisruption(t *testing.T) {
+	ctx, cancel := caddy.NewContext(caddy.Context{Context: context.Background()})
+	defer cancel()
+
+	weights := []int{10, 2, 8}
+	numHosts := len(weights)
+	pool := createWeightedPool(numHosts, weights)
+
+	policy := &WeightedMementoSelection{Field: "ip", Weights: weights}
+	if err := policy.Provision(ctx); err != nil {
+		t.Fatalf("Provision error: %v", err)
+	}
+	policy.fallback = &failSelector{t: t}
+	policy.PopulateInitialTopology(pool)
+
+	const numKeys = 10000
+	mappaOld := make(map[string]string, numKeys)
+	for i := 0; i < numKeys; i++ {
+		key := fmt.Sprintf("disruption-key-%d", i)
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.RemoteAddr = key
+		host := policy.Select(pool, req, nil)
+		mappaOld[key] = host.Dial
+	}
+
+	// Remove a host
+	hostToRemove := pool[1]
+	policy.handleUnhealthyEvent(context.Background(), caddy.Event{
+		Data: map[string]any{"host": hostToRemove.String()},
+	})
+
+	violations := 0
+	for key, oldHostDial := range mappaOld {
+		if oldHostDial == hostToRemove.Dial {
+			continue // This key is expected to be remapped.
+		}
+
+		req, _ := http.NewRequest("GET", "/", nil)
+		req.RemoteAddr = key
+		newHost := policy.Select(pool, req, nil)
+		if newHost == nil {
+			t.Errorf("Minimal Disruption violation: key %s failed to map after removal", key)
+			violations++
+			continue
+		}
+
+		if newHost.Dial != oldHostDial {
+			violations++
+			t.Errorf("Minimal Disruption violation: key %s moved from %s to %s (was not on removed host %s)",
+				key, oldHostDial, newHost.Dial, hostToRemove.Dial)
+		}
+	}
+
+	if violations > 0 {
+		t.Fatalf("Minimal Disruption property violated for %d keys", violations)
+	} else {
+		t.Logf("Minimal Disruption property maintained for all keys not on the removed host.")
+	}
+}
+
 // failSelector is a selection policy that always fails the test.
 // It's used to ensure that the fallback policy is never called.
 type failSelector struct {
