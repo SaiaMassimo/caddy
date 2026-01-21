@@ -1321,7 +1321,7 @@ func (s *WeightedMementoSelection) Select(pool UpstreamPool, req *http.Request, 
 
 	// Use the weighted consistent engine to find the node
 	if nodeID, ok := s.consistentEngine.Lookup(key); ok {
-		s.logger.Debug("memento lookup", zap.String("key", key), zap.String("nodeID", nodeID))
+		// s.logger.Debug("memento lookup", zap.String("key", key), zap.String("nodeID", nodeID))
 		// Find the Upstream in the pool that matches this node ID
 		for _, upstream := range pool {
 			if upstream.String() == nodeID {

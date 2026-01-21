@@ -119,15 +119,9 @@ func TestWeightedMementoSelectionRemoval(t *testing.T) {
 	}
 
 	// Remove the host via an unhealthy event
-	event := caddy.Event{
-		Data: map[string]any{
-			"event_name": "caddy.http.reverse_proxy.host.unhealthy",
-			"host":       hostToRemove.String(),
-		},
-	}
-	if err := policy.Handle(context.Background(), event); err != nil {
-		t.Fatalf("Handle unhealthy event error: %v", err)
-	}
+	policy.handleUnhealthyEvent(context.Background(), caddy.Event{
+		Data: map[string]any{"host": hostToRemove.String()},
+	})
 
 	// Verify the key is remapped to a different, active host
 	req, _ := http.NewRequest("GET", "/", nil)
@@ -182,26 +176,14 @@ func TestWeightedMementoSelectionRemovalAndRestore(t *testing.T) {
 
 	// Remove a host
 	hostToRemove := pool[1]
-	unhealthyEvent := caddy.Event{
-		Data: map[string]any{
-			"event_name": "caddy.http.reverse_proxy.host.unhealthy",
-			"host":       hostToRemove.String(),
-		},
-	}
-	if err := policy.Handle(context.Background(), unhealthyEvent); err != nil {
-		t.Fatalf("Handle unhealthy event error: %v", err)
-	}
+	policy.handleUnhealthyEvent(context.Background(), caddy.Event{
+		Data: map[string]any{"host": hostToRemove.String()},
+	})
 
 	// Restore the host
-	healthyEvent := caddy.Event{
-		Data: map[string]any{
-			"event_name": "caddy.http.reverse_proxy.host.healthy",
-			"host":       hostToRemove.String(),
-		},
-	}
-	if err := policy.Handle(context.Background(), healthyEvent); err != nil {
-		t.Fatalf("Handle healthy event error: %v", err)
-	}
+	policy.handleHealthyEvent(context.Background(), caddy.Event{
+		Data: map[string]any{"host": hostToRemove.String()},
+	})
 
 	// Verify that all mappings have been restored to their original state
 	restorationFailures := 0
