@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/cespare/xxhash/v2"
+	"go.uber.org/zap"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig"
@@ -54,6 +55,7 @@ func init() {
 	caddy.RegisterModule(HeaderHashSelection{})
 	caddy.RegisterModule(CookieHashSelection{})
 	caddy.RegisterModule(MementoSelection{})
+	caddy.RegisterModule(WeightedMementoSelection{})
 }
 
 // RandomSelection is a policy that selects
@@ -1160,6 +1162,274 @@ func (s *MementoSelection) Handle(ctx context.Context, event caddy.Event) error 
 	return nil
 }
 
+// WeightedMementoSelection is a policy that selects a host
+// using a weighted consistent hashing algorithm (based on Memento)
+// for optimal load distribution and minimal redistribution when the topology changes.
+type WeightedMementoSelection struct {
+	// The field to use for hashing. Can be "ip", "uri", "header", etc.
+	// Defaults to "ip" if not specified.
+	Field string `json:"field,omitempty"`
+
+	// The header field name if Field is "header"
+	HeaderField string `json:"header_field,omitempty"`
+
+	// The weight of each upstream in order,
+	// corresponding with the list of upstreams configured.
+	Weights []int `json:"weights,omitempty"`
+
+	// The fallback policy to use if the field is not present. Defaults to `random`.
+	FallbackRaw json.RawMessage `json:"fallback,omitempty" caddy:"namespace=http.reverse_proxy.selection_policies inline_key=policy"`
+	fallback    Selector
+
+	// Internal state for consistent hashing
+	consistentEngine *memento.WeightedConsistentEngine
+	initialWeights   map[string]int // Persist initial weights for re-balancing
+	topology         sync.Map       // Track which nodes are currently available (map[string]bool, thread-safe)
+
+	// Event system integration
+	events *caddyevents.App
+	ctx    caddy.Context
+	logger *zap.Logger
+}
+
+// CaddyModule returns the Caddy module information.
+func (WeightedMementoSelection) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "http.reverse_proxy.selection_policies.weighted_memento",
+		New: func() caddy.Module { return new(WeightedMementoSelection) },
+	}
+}
+
+// UnmarshalCaddyfile sets up the module from Caddyfile tokens.
+func (s *WeightedMementoSelection) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume policy name
+
+	// The first arguments are the weights
+	s.Weights = []int{}
+	for _, weight := range d.RemainingArgs() {
+		// if an arg is not a number, it's probably a block opener
+		if _, err := strconv.Atoi(weight); err != nil {
+			break
+		}
+		d.NextArg() // consume the weight arg
+		weightInt, err := strconv.Atoi(weight)
+		if err != nil {
+			return d.Errf("invalid weight value '%s': %v", weight, err)
+		}
+		if weightInt < 0 {
+			return d.Errf("invalid weight value '%s': weight should be non-negative", weight)
+		}
+		s.Weights = append(s.Weights, weightInt)
+	}
+
+	for d.NextBlock(0) {
+		switch d.Val() {
+		case "field":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			s.Field = d.Val()
+		case "header_field":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			s.HeaderField = d.Val()
+		case "fallback":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			if s.FallbackRaw != nil {
+				return d.Err("fallback selection policy already specified")
+			}
+			mod, err := loadFallbackPolicy(d)
+			if err != nil {
+				return err
+			}
+			s.FallbackRaw = mod
+		default:
+			return d.Errf("unrecognized option '%s'", d.Val())
+		}
+	}
+	return nil
+}
+
+// Provision sets up the module.
+func (s *WeightedMementoSelection) Provision(ctx caddy.Context) error {
+	s.logger = ctx.Logger(s)
+	if s.Field == "" {
+		s.Field = "ip" // Default to IP-based hashing
+	}
+
+	if s.FallbackRaw == nil {
+		s.FallbackRaw = caddyconfig.JSONModuleObject(RandomSelection{}, "policy", "random", nil)
+	}
+	mod, err := ctx.LoadModule(s, "FallbackRaw")
+	if err != nil {
+		return fmt.Errorf("loading fallback selection policy: %s", err)
+	}
+	s.fallback = mod.(Selector)
+
+	// Initialize the weighted consistent hashing engine
+	s.consistentEngine = memento.NewWeightedConsistentEngine()
+	s.initialWeights = make(map[string]int)
+
+	// Set up event system integration
+	s.ctx = ctx
+
+	return nil
+}
+
+// Select returns an available host, if any.
+func (s *WeightedMementoSelection) Select(pool UpstreamPool, req *http.Request, w http.ResponseWriter) *Upstream {
+	if len(pool) == 0 {
+		return nil
+	}
+
+	// Get the key to hash based on the field type
+	var key string
+	switch s.Field {
+	case "ip":
+		clientIP, _, err := net.SplitHostPort(req.RemoteAddr)
+		if err != nil {
+			clientIP = req.RemoteAddr
+		}
+		key = clientIP
+	case "client_ip":
+		address := caddyhttp.GetVar(req.Context(), caddyhttp.ClientIPVarKey).(string)
+		clientIP, _, err := net.SplitHostPort(address)
+		if err != nil {
+			clientIP = address
+		}
+		key = clientIP
+	case "uri":
+		key = req.RequestURI
+	case "header":
+		if s.HeaderField == "" {
+			return s.fallback.Select(pool, req, w)
+		}
+		if s.HeaderField == "Host" && req.Host != "" {
+			key = req.Host
+		} else {
+			key = req.Header.Get(s.HeaderField)
+		}
+		if key == "" {
+			return s.fallback.Select(pool, req, w)
+		}
+	default:
+		return s.fallback.Select(pool, req, w)
+	}
+
+	// Use the weighted consistent engine to find the node
+	if nodeID, ok := s.consistentEngine.Lookup(key); ok {
+		s.logger.Debug("memento lookup", zap.String("key", key), zap.String("nodeID", nodeID))
+		// Find the Upstream in the pool that matches this node ID
+		for _, upstream := range pool {
+			if upstream.String() == nodeID {
+				return upstream
+			}
+		}
+	}
+
+	// Fallback if the node is not found or engine is not ready
+	return s.fallback.Select(pool, req, w)
+}
+
+// SetEventsApp sets the events app for this selection policy
+func (s *WeightedMementoSelection) SetEventsApp(events *caddyevents.App) {
+	if events != nil {
+		s.events = events
+		s.subscribeToHealthEvents()
+	}
+}
+
+// PopulateInitialTopology populates the Memento topology with initial upstreams
+func (s *WeightedMementoSelection) PopulateInitialTopology(upstreams []*Upstream) {
+	if s.consistentEngine == nil {
+		return
+	}
+
+	nodesWithWeights := make(map[string]int)
+	for i, upstream := range upstreams {
+		host := upstream.String()
+		weight := 1 // Default weight
+		if i < len(s.Weights) {
+			weight = s.Weights[i]
+		}
+		if weight <= 0 {
+			continue
+		}
+		nodesWithWeights[host] = weight
+		s.initialWeights[host] = weight // Store for later
+	}
+
+	s.consistentEngine.InitCluster(nodesWithWeights)
+
+	// Mark all nodes as present in the topology map
+	for host := range nodesWithWeights {
+		s.topology.Store(host, true)
+	}
+}
+
+// subscribeToHealthEvents subscribes to health check events for real-time topology updates
+func (s *WeightedMementoSelection) subscribeToHealthEvents() {
+	if s.events == nil {
+		return
+	}
+	s.events.On("healthy", s)
+	s.events.On("unhealthy", s)
+}
+
+// handleHealthyEvent handles when an upstream becomes healthy
+func (s *WeightedMementoSelection) handleHealthyEvent(ctx context.Context, event caddy.Event) error {
+	if s.consistentEngine == nil {
+		return nil
+	}
+	host, ok := event.Data["host"].(string)
+	if !ok {
+		return nil
+	}
+
+	// Re-add the node only if it was previously part of the topology
+	if _, exists := s.topology.Load(host); !exists {
+		weight, hasInitialWeight := s.initialWeights[host]
+		if !hasInitialWeight {
+			// This should not happen if the host was part of the initial config
+			weight = 1
+		}
+		s.consistentEngine.AddNode(host, weight)
+		s.topology.Store(host, true)
+	}
+	return nil
+}
+
+// handleUnhealthyEvent handles when an upstream becomes unhealthy
+func (s *WeightedMementoSelection) handleUnhealthyEvent(ctx context.Context, event caddy.Event) error {
+	if s.consistentEngine == nil {
+		return nil
+	}
+	host, ok := event.Data["host"].(string)
+	if !ok {
+		return nil
+	}
+
+	if _, exists := s.topology.Load(host); exists {
+		s.consistentEngine.RemoveNode(host)
+		s.topology.Delete(host)
+	}
+	return nil
+}
+
+// Handle implements caddyevents.Handler interface
+func (s *WeightedMementoSelection) Handle(ctx context.Context, event caddy.Event) error {
+	switch event.Name() {
+	case "healthy":
+		return s.handleHealthyEvent(ctx, event)
+	case "unhealthy":
+		return s.handleUnhealthyEvent(ctx, event)
+	}
+	return nil
+}
+
 // Interface guards
 var (
 	_ Selector = (*RandomSelection)(nil)
@@ -1175,17 +1445,22 @@ var (
 	_ Selector = (*HeaderHashSelection)(nil)
 	_ Selector = (*CookieHashSelection)(nil)
 	_ Selector = (*MementoSelection)(nil)
+	_ Selector = (*WeightedMementoSelection)(nil)
 
 	_ caddy.Validator = (*RandomChoiceSelection)(nil)
 
 	_ caddy.Provisioner = (*RandomChoiceSelection)(nil)
 	_ caddy.Provisioner = (*WeightedRoundRobinSelection)(nil)
+	_ caddy.Provisioner = (*MementoSelection)(nil)
+	_ caddy.Provisioner = (*WeightedMementoSelection)(nil)
 
 	_ caddyfile.Unmarshaler = (*RandomChoiceSelection)(nil)
 	_ caddyfile.Unmarshaler = (*WeightedRoundRobinSelection)(nil)
 	_ caddyfile.Unmarshaler = (*MementoSelection)(nil)
+	_ caddyfile.Unmarshaler = (*WeightedMementoSelection)(nil)
 
 	_ caddyevents.Handler = (*MementoSelection)(nil)
+	_ caddyevents.Handler = (*WeightedMementoSelection)(nil)
 
 	// Back-compat alias
 )
