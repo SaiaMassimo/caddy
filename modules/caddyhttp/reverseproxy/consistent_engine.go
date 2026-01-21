@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package memento
+package reverseproxy
 
 import (
 	"fmt"
 	"sort"
+
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
 
 // ConsistentEngine wraps MementoEngine to provide a load balancing policy
@@ -25,7 +27,7 @@ import (
 // all hashing logic to MementoEngine.
 type ConsistentEngine struct {
 	// MementoEngine handles all hashing logic and arbitrary node removal
-	engine *MementoEngine
+	engine *memento.MementoEngine
 
 	// Indirection: one-to-one mapping between node ID (string) and bucket (int)
 	// This ensures consistency checks and proper mapping management
@@ -39,7 +41,7 @@ type ConsistentEngine struct {
 // NewConsistentEngine creates a new consistent engine with MementoEngine
 func NewConsistentEngine() *ConsistentEngine {
 	return &ConsistentEngine{
-		engine:      NewMementoEngine(0),
+		engine:      memento.NewMementoEngine(0),
 		indirection: NewIndirection(0),
 	}
 }
@@ -48,7 +50,7 @@ func NewConsistentEngine() *ConsistentEngine {
 // using the specified implementation type (lockFree=true for Lock-Free, false for RWMutex)
 func NewConsistentEngineWithType(lockFree bool) *ConsistentEngine {
 	return &ConsistentEngine{
-		engine:      NewMementoEngineWithType(0, lockFree),
+		engine:      memento.NewMementoEngineWithType(0, lockFree),
 		indirection: NewIndirection(0),
 	}
 }
@@ -114,9 +116,10 @@ func hashString(s string) uint64 {
 //
 // NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
 // (typically MementoSelection.mu with Lock() for writes).
-func (ce *ConsistentEngine) AddNode(nodeID string) error {
+
+func (ce *ConsistentEngine) AddNode(upstream *Upstream) error {
 	// Check if node already exists
-	if ce.indirection.HasNode(nodeID) {
+	if ce.indirection.HasNode(upstream) {
 		return nil // Node already present
 	}
 
@@ -125,10 +128,10 @@ func (ce *ConsistentEngine) AddNode(nodeID string) error {
 
 	// Map node ID to bucket index using indirection
 	// If mapping fails, we need to rollback the bucket addition
-	if err := ce.indirection.Put(nodeID, bucket); err != nil {
+	if err := ce.indirection.Put(upstream, bucket); err != nil {
 		// Rollback: remove the bucket from engine
 		ce.engine.RemoveBucket(bucket)
-		return fmt.Errorf("failed to add node %s: %w", nodeID, err)
+		return fmt.Errorf("failed to add node %s: %w", upstream.String(), err)
 	}
 
 	return nil
@@ -138,17 +141,18 @@ func (ce *ConsistentEngine) AddNode(nodeID string) error {
 //
 // NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
 // (typically MementoSelection.mu with Lock() for writes).
-func (ce *ConsistentEngine) RemoveNode(nodeID string) error {
+
+func (ce *ConsistentEngine) RemoveNode(upstream *Upstream) error {
 	// Get the bucket for this node from indirection
-	bucket, err := ce.indirection.GetBucket(nodeID)
+	bucket, err := ce.indirection.GetBucket(upstream)
 	if err != nil {
 		return err // Node not found
 	}
 
 	// Remove from indirection first (following Java implementation order)
 	// In Java: indirection.remove(node) returns the bucket, then engine.removeBucket(bucket)
-	if _, err := ce.indirection.RemoveNode(nodeID); err != nil {
-		return fmt.Errorf("failed to remove node %s from indirection: %w", nodeID, err)
+	if _, err := ce.indirection.RemoveNode(upstream); err != nil {
+		return fmt.Errorf("failed to remove node %s from indirection: %w", upstream.String(), err)
 	}
 
 	// Remove from MementoEngine
@@ -158,17 +162,17 @@ func (ce *ConsistentEngine) RemoveNode(nodeID string) error {
 }
 
 // RestoreNode restores a previously removed node
-func (ce *ConsistentEngine) RestoreNode(nodeID string) {
+func (ce *ConsistentEngine) RestoreNode(upstream *Upstream) {
 	// AddNode already handles restoring previously removed nodes
 	// because MementoEngine tracks the last removed bucket
-	ce.AddNode(nodeID)
+	ce.AddNode(upstream)
 }
 
 // GetTopology returns the current topology (list of node IDs).
 //
 // NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
 // (typically MementoSelection.mu with RLock() for reads).
-func (ce *ConsistentEngine) GetTopology() []string {
+func (ce *ConsistentEngine) GetTopology() []*Upstream {
 	return ce.indirection.GetAllNodeIDs()
 }
 
@@ -187,10 +191,10 @@ func (ce *ConsistentEngine) Size() int {
 func (ce *ConsistentEngine) GetMementoStats() map[string]interface{} {
 	return map[string]interface{}{
 		"engine_size":   ce.engine.Size(),
-		"binomial_size": ce.engine.binomialArraySize(),
-		"memento_size":  ce.engine.memento.Size(),
-		"memento_empty": ce.engine.memento.IsEmpty(),
-		"last_removed":  ce.engine.lastRemoved,
+		"binomial_size": ce.engine.BinomialArraySize(),
+		"memento_size":  ce.engine.MementoSize(),
+		"memento_empty": ce.engine.MementoEmpty(),
+		"last_removed":  ce.engine.LastRemoved(),
 		"topology_size": ce.indirection.Size(),
 	}
 }
@@ -208,10 +212,11 @@ func (ce *ConsistentEngine) String() string {
 //
 // NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
 // (typically MementoSelection.mu with RLock() for reads).
-func (ce *ConsistentEngine) GetNodeID(bucket int) string {
-	nodeID, err := ce.indirection.GetNodeID(bucket)
+
+func (ce *ConsistentEngine) GetNodeID(bucket int) *Upstream {
+	upstream, err := ce.indirection.GetNodeID(bucket)
 	if err != nil {
-		return "" // Return empty string if bucket doesn't exist
+		return nil // Return nil if bucket doesn't exist
 	}
-	return nodeID
+	return upstream
 }

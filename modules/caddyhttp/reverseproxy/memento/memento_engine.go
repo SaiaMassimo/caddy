@@ -158,6 +158,26 @@ func (me *MementoEngine) binomialArraySize() int {
 	return me.binomialEngine.Size()
 }
 
+// BinomialArraySize returns the size of the underlying binomial engine.
+func (me *MementoEngine) BinomialArraySize() int {
+	return me.binomialArraySize()
+}
+
+// MementoSize returns the size of the memento replacement set.
+func (me *MementoEngine) MementoSize() int {
+	return me.memento.Size()
+}
+
+// MementoEmpty reports whether the memento replacement set is empty.
+func (me *MementoEngine) MementoEmpty() bool {
+	return me.memento.IsEmpty()
+}
+
+// LastRemoved returns the last removed bucket index.
+func (me *MementoEngine) LastRemoved() int {
+	return me.lastRemoved
+}
+
 // String returns a string representation of the MementoEngine
 func (me *MementoEngine) String() string {
 	return fmt.Sprintf("MementoEngine{memento=%s, binomialSize=%d, lastRemoved=%d, size=%d, bArraySize=%d}",

@@ -38,7 +38,6 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyevents"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	memento "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
 
 func init() {
@@ -896,8 +895,8 @@ type MementoSelection struct {
 	fallback    Selector
 
 	// Internal state for consistent hashing
-	consistentEngine *memento.ConsistentEngine
-	topology         sync.Map // Track which nodes are currently available (map[string]bool, thread-safe)
+	consistentEngine *ConsistentEngine
+	topology         sync.Map // Track which upstreams are currently available (map[*Upstream]bool, thread-safe)
 
 	// Event system integration
 	events *caddyevents.App
@@ -932,7 +931,7 @@ func (s *MementoSelection) Provision(ctx caddy.Context) error {
 	// Initialize consistent engine
 	// ConsistentEngine creates MementoEngine internally, which in turn creates BinomialEngine
 	// This architecture allows for arbitrary node removals while maintaining consistency
-	s.consistentEngine = memento.NewConsistentEngine()
+	s.consistentEngine = NewConsistentEngine()
 
 	// Set up event system integration
 	s.ctx = ctx
@@ -987,7 +986,7 @@ func (s MementoSelection) Select(pool UpstreamPool, req *http.Request, w http.Re
 	// If the engine is not yet initialized with topology (e.g., no events in tests),
 	// fall back to random selection.
 	var bucket int
-	var nodeID string
+	var upstream *Upstream
 
 	// No lock needed: Indirection and topology are now thread-safe (sync.Map)
 	if s.consistentEngine == nil || s.consistentEngine.Size() == 0 {
@@ -998,20 +997,19 @@ func (s MementoSelection) Select(pool UpstreamPool, req *http.Request, w http.Re
 	// Get bucket from consistent engine (thread-safe: Indirection uses sync.Map)
 	bucket = s.consistentEngine.GetBucket(key)
 
-	// Convert bucket index to node ID (string)
+	// Convert bucket index to upstream
 	// The bucket index is an index in the MementoEngine, not in the pool
-	nodeID = s.consistentEngine.GetNodeID(bucket)
-	if nodeID == "" {
+	upstream = s.consistentEngine.GetNodeID(bucket)
+	if upstream == nil {
 		// Bucket index doesn't map to a valid node - this shouldn't happen
 		// but we fallback to random selection to be safe
 		return s.fallback.Select(pool, req, w)
 	}
 
-	// Find the Upstream in the pool that matches this node ID
-	// We need to search by comparing the String() representation
-	for _, upstream := range pool {
-		if upstream.String() == nodeID {
-			return upstream
+	// Find the Upstream in the pool that matches this upstream
+	for _, candidate := range pool {
+		if candidate == upstream && candidate.Available() {
+			return candidate
 		}
 	}
 
@@ -1079,13 +1077,12 @@ func (s *MementoSelection) PopulateInitialTopology(upstreams []*Upstream) {
 	// No lock needed: topology and engine are now thread-safe
 	// Add all configured upstreams as healthy
 	for _, upstream := range upstreams {
-		host := upstream.String()
-		if _, exists := s.topology.Load(host); !exists {
-			if err := s.consistentEngine.AddNode(host); err != nil {
+		if _, exists := s.topology.Load(upstream); !exists {
+			if err := s.consistentEngine.AddNode(upstream); err != nil {
 				// Log error but continue - this shouldn't happen in normal operation
 				continue
 			}
-			s.topology.Store(host, true)
+			s.topology.Store(upstream, true)
 		}
 	}
 }
@@ -1114,14 +1111,30 @@ func (s *MementoSelection) handleHealthyEvent(ctx context.Context, event caddy.E
 		return nil
 	}
 
+	var upstream *Upstream
+	s.topology.Range(func(key, value any) bool {
+		candidate, ok := key.(*Upstream)
+		if !ok {
+			return true
+		}
+		if candidate.String() == host {
+			upstream = candidate
+			return false
+		}
+		return true
+	})
+	if upstream == nil {
+		return nil
+	}
+
 	// No lock needed: topology and engine are now thread-safe
 	// Add node to consistent engine if not already present
-	if _, exists := s.topology.Load(host); !exists {
-		if err := s.consistentEngine.AddNode(host); err != nil {
+	if val, exists := s.topology.Load(upstream); !exists || val == false {
+		if err := s.consistentEngine.AddNode(upstream); err != nil {
 			// Log error but continue - this shouldn't happen in normal operation
 			return nil
 		}
-		s.topology.Store(host, true)
+		s.topology.Store(upstream, true)
 	}
 
 	return nil
@@ -1138,14 +1151,30 @@ func (s *MementoSelection) handleUnhealthyEvent(ctx context.Context, event caddy
 		return nil
 	}
 
+	var upstream *Upstream
+	s.topology.Range(func(key, value any) bool {
+		candidate, ok := key.(*Upstream)
+		if !ok {
+			return true
+		}
+		if candidate.String() == host {
+			upstream = candidate
+			return false
+		}
+		return true
+	})
+	if upstream == nil {
+		return nil
+	}
+
 	// No lock needed: topology and engine are now thread-safe
 	// Remove node from consistent engine if present
-	if _, exists := s.topology.Load(host); exists {
-		if err := s.consistentEngine.RemoveNode(host); err != nil {
+	if val, exists := s.topology.Load(upstream); exists && val == true {
+		if err := s.consistentEngine.RemoveNode(upstream); err != nil {
 			// Log error but continue - node might have been already removed
 			return nil
 		}
-		s.topology.Delete(host)
+		s.topology.Store(upstream, false)
 	}
 
 	return nil

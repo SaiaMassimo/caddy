@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
 
@@ -73,11 +74,11 @@ func BenchmarkRemoveNode(b *testing.B) {
 	const initialNodes = 1000
 
 	b.Run("RemoveNode_ConsistentEngine", func(b *testing.B) {
-		engine := memento.NewConsistentEngine()
+		engine := reverseproxy.NewConsistentEngine()
 
 		// Populate with nodes
 		for i := 0; i < initialNodes; i++ {
-			engine.AddNode(string(rune(i)))
+			engine.AddNode(&reverseproxy.Upstream{Dial: string(rune(i))})
 		}
 
 		nodeIDs := engine.GetTopology()
@@ -89,11 +90,11 @@ func BenchmarkRemoveNode(b *testing.B) {
 	})
 
 	b.Run("RemoveNode_WithLookups", func(b *testing.B) {
-		engine := memento.NewConsistentEngine()
+		engine := reverseproxy.NewConsistentEngine()
 
 		// Populate with nodes
 		for i := 0; i < initialNodes; i++ {
-			engine.AddNode(string(rune(i)))
+			engine.AddNode(&reverseproxy.Upstream{Dial: string(rune(i))})
 		}
 
 		const numKeys = 1000
