@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/caddyserver/caddy/v2"
-	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
 
 // Note: CSV writing is handled by the benchmark_to_csv.go script which parses the benchmark output
@@ -51,7 +50,7 @@ func newMementoSelectionWithType(ctx caddy.Context, lockFree bool) (*MementoSele
 		return nil, err
 	}
 	// Replace the consistentEngine with the specified type
-	policy.consistentEngine = memento.NewConsistentEngineWithType(lockFree)
+	policy.consistentEngine = NewConsistentEngineWithType(lockFree)
 	return &policy, nil
 }
 
@@ -80,22 +79,16 @@ func verifyMementoSelection(selected *Upstream, removedNodes map[string]bool, po
 		return fmt.Errorf("consistent engine is not initialized (size=0) - using fallback")
 	}
 
-	// Get the bucket that Memento would use for this key
-	bucket := policy.consistentEngine.GetBucket(key)
-	if bucket < 0 {
-		return fmt.Errorf("GetBucket returned invalid bucket %d for key %s - using fallback", bucket, key)
-	}
-
-	// Get the node ID that Memento would select for this bucket
-	expectedNodeID := policy.consistentEngine.GetNodeID(bucket)
-	if expectedNodeID == "" {
-		return fmt.Errorf("GetNodeID returned empty for bucket %d - using fallback", bucket)
+	// Get the upstream that Memento would select for this key
+	expectedUpstream := policy.consistentEngine.GetBucket(key)
+	if expectedUpstream == nil {
+		return fmt.Errorf("GetBucket returned nil for key %s - using fallback", key)
 	}
 
 	// Verify the selected node matches what Memento would select
-	if selectedHost != expectedNodeID {
-		return fmt.Errorf("selected node %s does not match Memento's expected node %s (bucket=%d, key=%s) - likely using fallback",
-			selectedHost, expectedNodeID, bucket, key)
+	if selectedHost != expectedUpstream.String() {
+		return fmt.Errorf("selected node %s does not match Memento's expected node %s (key=%s) - likely using fallback",
+			selectedHost, expectedUpstream.String(), key)
 	}
 
 	return nil

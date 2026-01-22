@@ -125,10 +125,10 @@ func (me *MementoEngine) AddBucket() int {
 
 // RemoveBucket removes a bucket from the working set
 func (me *MementoEngine) RemoveBucket(bucket int) int {
-	// Calculate working size
+	// Calculate working size (size after removal)
 	mementoSize := me.memento.Size()
 	binomialSize := me.binomialEngine.Size()
-	workingSize := binomialSize - mementoSize
+	workingSize := binomialSize - mementoSize - 1
 	mementoEmpty := mementoSize == 0
 
 	// If memento is empty and removing the last bucket, remove from binomial directly

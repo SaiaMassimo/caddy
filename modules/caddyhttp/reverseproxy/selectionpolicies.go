@@ -931,7 +931,7 @@ func (s *MementoSelection) Provision(ctx caddy.Context) error {
 	// Initialize consistent engine
 	// ConsistentEngine creates MementoEngine internally, which in turn creates BinomialEngine
 	// This architecture allows for arbitrary node removals while maintaining consistency
-	s.consistentEngine = NewConsistentEngine()
+	s.consistentEngine = NewConsistentEngineWithType(true)
 
 	// Set up event system integration
 	s.ctx = ctx
@@ -985,7 +985,6 @@ func (s MementoSelection) Select(pool UpstreamPool, req *http.Request, w http.Re
 	// Use consistent engine with Memento for stable hashing (default)
 	// If the engine is not yet initialized with topology (e.g., no events in tests),
 	// fall back to random selection.
-	var bucket int
 	var upstream *Upstream
 
 	// No lock needed: Indirection and topology are now thread-safe (sync.Map)
@@ -994,12 +993,9 @@ func (s MementoSelection) Select(pool UpstreamPool, req *http.Request, w http.Re
 		return s.fallback.Select(pool, req, w)
 	}
 
-	// Get bucket from consistent engine (thread-safe: Indirection uses sync.Map)
-	bucket = s.consistentEngine.GetBucket(key)
+	// Get node from consistent engine
+	upstream = s.consistentEngine.GetBucket(key)
 
-	// Convert bucket index to upstream
-	// The bucket index is an index in the MementoEngine, not in the pool
-	upstream = s.consistentEngine.GetNodeID(bucket)
 	if upstream == nil {
 		// Bucket index doesn't map to a valid node - this shouldn't happen
 		// but we fallback to random selection to be safe

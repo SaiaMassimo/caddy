@@ -16,7 +16,6 @@ package reverseproxy
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy/memento"
 )
@@ -55,50 +54,16 @@ func NewConsistentEngineWithType(lockFree bool) *ConsistentEngine {
 	}
 }
 
-// GetBucket returns the bucket for a key.
-// It ensures the returned bucket exists in the indirection.
-// If the bucket returned by MementoEngine doesn't exist in the indirection,
-// it follows the replacement chain until finding a valid bucket.
-//
-// NOTE: This method is NOT thread-safe. The caller must hold an appropriate lock
-// (typically MementoSelection.mu with RLock() for reads or Lock() for writes).
-func (ce *ConsistentEngine) GetBucket(key string) int {
+// GetBucket returns the bucket index for a given key.
+func (ce *ConsistentEngine) GetBucket(key string) *Upstream {
 	bucket := ce.engine.GetBucket(key)
 
-	// Verify that the bucket exists in the indirection
-	if ce.indirection.HasBucket(bucket) {
-		return bucket
+	upstream, err := ce.indirection.GetNodeID(bucket)
+	if err == nil {
+		return upstream
 	}
 
-	// The bucket doesn't exist in indirection - this can happen when
-	// multiple removals cause remapping chains where the final bucket
-	// was also removed from the topology.
-	//
-	// According to the Java implementation, when indirection.get(bucket)
-	// fails (bucket doesn't exist), it throws an exception. But in our
-	// case, we need to handle this gracefully.
-	//
-	// Since MementoEngine.GetBucket already handles remapping correctly,
-	// if we get a bucket that doesn't exist in indirection, it means
-	// there's a synchronization issue. We should not reach this point
-	// in normal operation, but we handle it by finding a valid bucket
-	// deterministically based on the key to maintain consistency.
-	validBuckets := ce.indirection.GetAllBuckets()
-	if len(validBuckets) == 0 {
-		// No buckets in indirection - return the original bucket
-		// This will cause GetNodeID to return an error, triggering fallback
-		return bucket
-	}
-
-	// Sort buckets to ensure deterministic ordering
-	// This is critical for consistency: same key -> same bucket
-	sort.Ints(validBuckets)
-
-	// Use a deterministic hash of the key to select a valid bucket
-	// This ensures consistency: same key -> same bucket (from valid buckets)
-	hash := hashString(key)
-	selectedIndex := int(hash % uint64(len(validBuckets)))
-	return validBuckets[selectedIndex]
+	return nil
 }
 
 // hashString computes a simple hash of a string

@@ -45,9 +45,19 @@ func TestConsistentEngine(t *testing.T) {
 		t.Errorf("Expected size 5, got %d", consistentEngine.Size())
 	}
 
-	bucket := consistentEngine.GetBucket("test-key")
-	if bucket < 0 || bucket >= 5 {
-		t.Errorf("Bucket %d out of range [0, 5)", bucket)
+	upstream := consistentEngine.GetBucket("test-key")
+	if upstream == nil {
+		t.Fatal("Expected non-nil upstream for key")
+	}
+	found := false
+	for _, up := range upstreams {
+		if up == upstream {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Upstream %s not found in initial upstream list", upstream.String())
 	}
 
 	topology := consistentEngine.GetTopology()
@@ -109,20 +119,26 @@ func TestConsistentEngineConsistency(t *testing.T) {
 	}
 
 	key := "consistent-test-key"
-	bucket1 := consistentEngine.GetBucket(key)
-	bucket2 := consistentEngine.GetBucket(key)
+	upstream1 := consistentEngine.GetBucket(key)
+	upstream2 := consistentEngine.GetBucket(key)
 
-	if bucket1 != bucket2 {
-		t.Errorf("Inconsistent mapping: %d vs %d", bucket1, bucket2)
+	if upstream1 == nil || upstream2 == nil {
+		t.Fatal("Expected non-nil upstream for key")
+	}
+	if upstream1 != upstream2 {
+		t.Errorf("Inconsistent mapping: %s vs %s", upstream1.String(), upstream2.String())
 	}
 
 	consistentEngine.RemoveNode(upstreams[2])
 
-	bucket3 := consistentEngine.GetBucket(key)
-	bucket4 := consistentEngine.GetBucket(key)
+	upstream3 := consistentEngine.GetBucket(key)
+	upstream4 := consistentEngine.GetBucket(key)
 
-	if bucket3 != bucket4 {
-		t.Errorf("Inconsistent mapping after removal: %d vs %d", bucket3, bucket4)
+	if upstream3 == nil || upstream4 == nil {
+		t.Fatal("Expected non-nil upstream for key after removal")
+	}
+	if upstream3 != upstream4 {
+		t.Errorf("Inconsistent mapping after removal: %s vs %s", upstream3.String(), upstream4.String())
 	}
 }
 
@@ -148,10 +164,9 @@ func TestConsistentEngineLoadBalancing(t *testing.T) {
 	nodeCounts := make(map[string]int, N)
 	for i := 0; i < K; i++ {
 		key := fmt.Sprintf("consistent-key-%d", i)
-		bucket := consistentEngine.GetBucket(key)
-		up := consistentEngine.GetNodeID(bucket)
+		up := consistentEngine.GetBucket(key)
 		if up == nil {
-			t.Fatalf("Invalid bucket %d for key %s (no upstream found)", bucket, key)
+			t.Fatalf("Invalid upstream for key %s", key)
 		}
 		nodeCounts[up.String()]++
 	}
@@ -221,16 +236,24 @@ func TestMementoLoadBalancing(t *testing.T) {
 	}
 
 	distributionBefore := make([]int, numNodes)
-	keyToBucket := make(map[string]int, numKeys)
+	keyToUpstream := make(map[string]*Upstream, numKeys)
+	indexByUpstream := make(map[*Upstream]int, numNodes)
+	for i, up := range upstreams {
+		indexByUpstream[up] = i
+	}
 
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("memento-key-%d", i)
-		bucket := consistentEngine.GetBucket(key)
-		if bucket < 0 || bucket >= numNodes {
-			t.Fatalf("Invalid bucket %d for key %s", bucket, key)
+		up := consistentEngine.GetBucket(key)
+		if up == nil {
+			t.Fatalf("Invalid upstream for key %s", key)
 		}
-		distributionBefore[bucket]++
-		keyToBucket[key] = bucket
+		index, ok := indexByUpstream[up]
+		if !ok {
+			t.Fatalf("Upstream %s not found in index map", up.String())
+		}
+		distributionBefore[index]++
+		keyToUpstream[key] = up
 	}
 
 	meanBefore := float64(numKeys) / float64(numNodes)
@@ -262,20 +285,25 @@ func TestMementoLoadBalancing(t *testing.T) {
 
 	for i := 0; i < numKeys; i++ {
 		key := fmt.Sprintf("memento-key-%d", i)
-		bucketAfter := consistentEngine.GetBucket(key)
-		bucketBefore := keyToBucket[key]
+		upAfter := consistentEngine.GetBucket(key)
+		upBefore := keyToUpstream[key]
 
-		if bucketAfter == randomNodeIndex {
-			t.Errorf("Key %s was still mapped to removed bucket %d", key, bucketAfter)
+		if upAfter == nil {
+			t.Errorf("Invalid upstream for key %s after removal", key)
+			continue
+		}
+		if upAfter == removedUpstream {
+			t.Errorf("Key %s was still mapped to removed upstream %s", key, removedUpstream.Dial)
 		}
 
-		if bucketAfter < 0 || bucketAfter >= numNodes {
-			t.Errorf("Invalid bucket %d for key %s after removal", bucketAfter, key)
+		indexAfter, ok := indexByUpstream[upAfter]
+		if !ok {
+			t.Errorf("Upstream %s not found in index map after removal", upAfter.String())
 			continue
 		}
 
-		distributionAfter[bucketAfter]++
-		if bucketBefore != bucketAfter {
+		distributionAfter[indexAfter]++
+		if upBefore != upAfter {
 			keysMoved++
 		}
 	}
@@ -379,10 +407,9 @@ func TestConsistentEngineLoadBalancingLockFree(t *testing.T) {
 	nodeCounts := make(map[string]int, N)
 	for i := 0; i < K; i++ {
 		key := fmt.Sprintf("consistent-key-%d", i)
-		bucket := consistentEngine.GetBucket(key)
-		up := consistentEngine.GetNodeID(bucket)
+		up := consistentEngine.GetBucket(key)
 		if up == nil {
-			t.Fatalf("Invalid bucket %d for key %s (no upstream found)", bucket, key)
+			t.Fatalf("Invalid upstream for key %s", key)
 		}
 		nodeCounts[up.String()]++
 	}
@@ -444,6 +471,6 @@ func BenchmarkConsistentEngineGetBucket(b *testing.B) {
 	key := "benchmark-key"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		consistentEngine.GetBucket(key)
+		_ = consistentEngine.GetBucket(key)
 	}
 }

@@ -21,7 +21,7 @@ type WeightedConsistentEngine struct {
 // NewWeightedConsistentEngine creates a new weighted consistent hashing engine.
 func NewWeightedConsistentEngine() *WeightedConsistentEngine {
 	return &WeightedConsistentEngine{
-		memento:     memento.NewMementoEngine(0),
+		memento:     memento.NewMementoEngineWithType(0, true),
 		indirection: NewWeightedIndirection(),
 	}
 }
